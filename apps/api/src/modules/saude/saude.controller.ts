@@ -1,6 +1,7 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { Publico } from '../auth/decorators.js';
 
 @Controller('saude')
 export class SaudeController {
@@ -8,6 +9,7 @@ export class SaudeController {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  @Publico()
   @Get()
   async verificar(): Promise<{ status: 'ok'; banco: 'ok' }> {
     try {

@@ -9,6 +9,9 @@ import { TenantModule } from './common/tenant/tenant.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { SaudeModule } from './modules/saude/saude.module.js';
 import { NotificacoesModule } from './modules/notificacoes/notificacoes.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { OficinasModule } from './modules/oficinas/oficinas.module.js';
+import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
 
 @Module({
   imports: [
@@ -19,6 +22,9 @@ import { NotificacoesModule } from './modules/notificacoes/notificacoes.module.j
     PrismaModule,
     NotificacoesModule,
     SaudeModule,
+    OficinasModule,
+    UsuariosModule,
+    AuthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
