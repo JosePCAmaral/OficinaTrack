@@ -2,12 +2,22 @@ import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { loginSchema, type Login, type RespostaSessao, type UsuarioEu } from '@oficinatrack/shared';
+import {
+  cadastroSchema,
+  emailApenasSchema,
+  loginSchema,
+  tokenApenasSchema,
+  type Cadastro,
+  type Login,
+  type RespostaSessao,
+  type UsuarioEu,
+} from '@oficinatrack/shared';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { limite } from '../../common/seguranca/limites.js';
 import { ZodValidationPipe } from '../../common/validacao/zod-validation.pipe.js';
 import type { Env } from '../../config/env.js';
 import { AuthService } from './auth.service.js';
+import { CadastroService } from './cadastro.service.js';
 import { COOKIE_REFRESH, definirCookieRefresh, limparCookieRefresh } from './cookie-refresh.js';
 import { Publico, UsuarioAtual, type UsuarioAutenticado } from './decorators.js';
 import { SessaoConcorrenteError, SessoesService } from './sessoes.service.js';
@@ -17,6 +27,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly sessoes: SessoesService,
+    private readonly cadastroService: CadastroService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -28,6 +39,36 @@ export class AuthController {
     const sessao = await this.auth.login(dados);
     definirCookieRefresh(res, sessao);
     return this.auth.montarResposta(sessao);
+  }
+
+  @Publico()
+  @Post('cadastro')
+  @Throttle({ default: { limit: limite(5), ttl: 3_600_000 } })
+  async cadastro(@Body(new ZodValidationPipe(cadastroSchema)) dados: Cadastro): Promise<{ mensagem: string }> {
+    await this.cadastroService.cadastrar(dados);
+    return { mensagem: 'Enviamos um link de confirmação para o seu e-mail' };
+  }
+
+  @Publico()
+  @Post('confirmar-email')
+  @HttpCode(200)
+  @Throttle({ default: { limit: limite(10), ttl: 60_000 } })
+  async confirmarEmail(
+    @Body(new ZodValidationPipe(tokenApenasSchema)) { token }: { token: string },
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<RespostaSessao> {
+    const sessao = await this.cadastroService.confirmarEmail(token);
+    definirCookieRefresh(res, sessao);
+    return this.auth.montarResposta(sessao);
+  }
+
+  @Publico()
+  @Post('reenviar-confirmacao')
+  @HttpCode(200)
+  @Throttle({ default: { limit: limite(3), ttl: 3_600_000 } })
+  async reenviarConfirmacao(@Body(new ZodValidationPipe(emailApenasSchema)) { email }: { email: string }): Promise<{ mensagem: string }> {
+    await this.cadastroService.reenviarConfirmacao(email);
+    return { mensagem: 'Se houver uma conta aguardando confirmação com este e-mail, enviamos um novo link' };
   }
 
   @Publico()

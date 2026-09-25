@@ -49,6 +49,7 @@ pnpm dev                           # shared (watch) + api + web
 pnpm test                          # todos os testes (precisa do postgres rodando)
 pnpm lint
 pnpm typecheck
+pnpm --filter @oficinatrack/api codigo-piloto "Oficina do Zé - Ribeirão do Pinhal"   # gera um código de piloto (uso único, válido 30 dias)
 ```
 
 A API sobe na porta `3333` por padrão (`PORT` em `apps/api/.env`); o servidor de dev do Vite (`apps/web`, porta `5173`) faz proxy de `/api` para `http://localhost:3333`. A porta 3000 fica livre porque já é usada por outros projetos nesta máquina.
