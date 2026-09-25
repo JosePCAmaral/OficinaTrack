@@ -1,0 +1,69 @@
+import { Injectable } from '@nestjs/common';
+import { ClsService } from 'nestjs-cls';
+
+const CHAVE_OFICINA = 'oficinaId';
+const CHAVE_SEM_TENANT = 'semTenant';
+
+export class TenantAusenteError extends Error {
+  constructor(modelo: string, operacao: string) {
+    super(`Consulta em ${modelo}.${operacao} sem oficina no contexto`);
+    this.name = 'TenantAusenteError';
+  }
+}
+
+export class TenantViolacaoError extends Error {
+  constructor(modelo: string, operacao: string) {
+    super(`${modelo}.${operacao} tentou gravar dados de outra oficina`);
+    this.name = 'TenantViolacaoError';
+  }
+}
+
+@Injectable()
+export class TenantContext {
+  constructor(private readonly cls: ClsService) {}
+
+  oficinaId(): string | undefined {
+    return this.cls.isActive() ? this.cls.get<string | undefined>(CHAVE_OFICINA) : undefined;
+  }
+
+  oficinaIdAtual(): string {
+    const oficinaId = this.oficinaId();
+    if (!oficinaId) throw new TenantAusenteError('contexto', 'oficinaIdAtual');
+    return oficinaId;
+  }
+
+  ignorandoTenant(): boolean {
+    return this.cls.isActive() && this.cls.get<boolean | undefined>(CHAVE_SEM_TENANT) === true;
+  }
+
+  /** Chamado pelo guard de autenticação com o `oficinaId` do JWT. */
+  definirOficina(oficinaId: string): void {
+    this.cls.set(CHAVE_OFICINA, oficinaId);
+  }
+
+  executarComo<T>(oficinaId: string, fn: () => Promise<T>): Promise<T> {
+    // `await` aqui dentro (em vez de só repassar a Promise) é necessário: as operações
+    // do Prisma são "thenables" preguiçosos que só executam de fato no `.then`/`await`.
+    // Se devolvêssemos a Promise sem aguardar, a consulta rodaria fora do contexto do
+    // AsyncLocalStorage (já fechado) e `tenant.oficinaId()` voltaria `undefined`.
+    return this.cls.run(async () => {
+      this.cls.set(CHAVE_SEM_TENANT, false);
+      this.cls.set(CHAVE_OFICINA, oficinaId);
+      return await fn();
+    });
+  }
+
+  /**
+   * Desliga o filtro de oficina. Uso restrito: login, refresh, aceite de convite,
+   * portal por token (achar o registro pelo hash), seeds e testes.
+   * Todo uso precisa de comentário justificando.
+   */
+  executarSemTenant<T>(fn: () => Promise<T>): Promise<T> {
+    // Ver comentário em `executarComo` sobre o `await` interno.
+    return this.cls.run(async () => {
+      this.cls.set(CHAVE_OFICINA, undefined);
+      this.cls.set(CHAVE_SEM_TENANT, true);
+      return await fn();
+    });
+  }
+}

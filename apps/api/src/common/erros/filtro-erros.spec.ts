@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
+import { Prisma } from '../../generated/prisma/client.js';
 import { ErroNegocio } from './erro-negocio.js';
 import { FiltroErros } from './filtro-erros.js';
 
@@ -25,5 +26,15 @@ describe('FiltroErros.converter', () => {
     const corpo = filtro.converter(new Error('senha do banco: xyz'));
     expect(corpo).toEqual({ statusCode: 500, code: 'ERRO_INTERNO', message: 'Erro interno' });
     expect(JSON.stringify(corpo)).not.toContain('xyz');
+  });
+
+  it('converte registro não encontrado do Prisma em 404', () => {
+    const erro = new Prisma.PrismaClientKnownRequestError('No record found', { code: 'P2025', clientVersion: '7.10.0' });
+    expect(filtro.converter(erro).statusCode).toBe(404);
+  });
+
+  it('esconde erro desconhecido do Prisma (Review Focus 5)', () => {
+    const erro = new Prisma.PrismaClientKnownRequestError('Unique constraint failed on oficinaId', { code: 'P2002', clientVersion: '7.10.0' });
+    expect(filtro.converter(erro)).toEqual({ statusCode: 500, code: 'ERRO_INTERNO', message: 'Erro interno' });
   });
 });

@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Response } from 'express';
+import { Prisma } from '../../generated/prisma/client.js';
 import { CorpoErro, ErroNegocio } from './erro-negocio.js';
 
 const CODIGOS_HTTP: Record<number, [string, string]> = {
@@ -26,6 +27,9 @@ export class FiltroErros implements ExceptionFilter {
 
   converter(erro: unknown): CorpoErro {
     if (erro instanceof ErroNegocio) return erro.corpo();
+    if (erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2025') {
+      return { statusCode: 404, code: 'RECURSO_NAO_ENCONTRADO', message: 'Recurso não encontrado' };
+    }
     if (erro instanceof HttpException) {
       const status = erro.getStatus();
       const [code, message] = CODIGOS_HTTP[status] ?? ['ERRO_HTTP', 'Erro na requisição'];

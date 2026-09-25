@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validarEnv } from './config/env.js';
+import { TenantModule } from './common/tenant/tenant.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { SaudeModule } from './modules/saude/saude.module.js';
 
@@ -10,6 +11,7 @@ import { SaudeModule } from './modules/saude/saude.module.js';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validarEnv }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    TenantModule,
     PrismaModule,
     SaudeModule,
   ],
