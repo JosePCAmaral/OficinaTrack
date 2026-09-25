@@ -37,41 +37,37 @@ describe('FK composta impede referência entre oficinas', () => {
       ).rejects.toMatchObject({ code: 'P2003' });
     }));
 
+  const criarDados = async (nome: string) => {
+    const oficina = await novaOficina(nome);
+    const usuario = await prisma.db.usuario.create({
+      data: {
+        oficinaId: oficina.id,
+        nome: `Dono ${nome}`,
+        email: `fk-${Math.random().toString(36).slice(2)}@teste.local`,
+        senhaHash: 'hash-de-teste-nao-e-senha',
+        perfil: 'DONO',
+      },
+    });
+    const cliente = await prisma.db.cliente.create({
+      data: { oficinaId: oficina.id, telefone: `+55439${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}` },
+    });
+    const veiculo = await prisma.db.veiculo.create({
+      data: { oficinaId: oficina.id, clienteId: cliente.id, placa: `FKT${String(Math.floor(Math.random() * 1e4)).padStart(4, '0')}` },
+    });
+    const os = await prisma.db.ordemServico.create({
+      data: { oficinaId: oficina.id, numero: 1, veiculoId: veiculo.id, clienteId: cliente.id, relatoCliente: 'teste' },
+    });
+    const evento = await prisma.db.eventoOS.create({
+      data: { oficinaId: oficina.id, ordemServicoId: os.id, tipo: 'COMENTARIO' },
+    });
+    return { oficina, usuario, cliente, os, evento };
+  };
+
+  // sem tenant: teste da camada do banco (FK composta), não da extensão de tenant
+  const semTenant = <T>(fn: () => Promise<T>) => tenant.executarSemTenant(fn);
+  const montar = () => semTenant(async () => ({ a: await criarDados('A'), b: await criarDados('B') }));
+
   describe('FKs opcionais e RefreshToken (achado #2/#4 da auditoria)', () => {
-    // sem tenant: teste da camada do banco (FK composta), não da extensão de tenant
-    const montar = () =>
-      tenant.executarSemTenant(async () => {
-        const criarDados = async (nome: string) => {
-          const oficina = await novaOficina(nome);
-          const usuario = await prisma.db.usuario.create({
-            data: {
-              oficinaId: oficina.id,
-              nome: `Dono ${nome}`,
-              email: `fk-${Math.random().toString(36).slice(2)}@teste.local`,
-              senhaHash: 'hash-de-teste-nao-e-senha',
-              perfil: 'DONO',
-            },
-          });
-          const cliente = await prisma.db.cliente.create({
-            data: { oficinaId: oficina.id, telefone: `+55439${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}` },
-          });
-          const veiculo = await prisma.db.veiculo.create({
-            data: { oficinaId: oficina.id, clienteId: cliente.id, placa: `FKT${String(Math.floor(Math.random() * 1e4)).padStart(4, '0')}` },
-          });
-          const os = await prisma.db.ordemServico.create({
-            data: { oficinaId: oficina.id, numero: 1, veiculoId: veiculo.id, clienteId: cliente.id, relatoCliente: 'teste' },
-          });
-          const evento = await prisma.db.eventoOS.create({
-            data: { oficinaId: oficina.id, ordemServicoId: os.id, tipo: 'COMENTARIO' },
-          });
-          return { oficina, usuario, cliente, os, evento };
-        };
-        return { a: await criarDados('A'), b: await criarDados('B') };
-      });
-
-    // sem tenant: teste da camada do banco (FK composta), não da extensão de tenant
-    const semTenant = <T>(fn: () => Promise<T>) => tenant.executarSemTenant(fn);
-
     it('OS da oficina A com responsavelId de B → P2003', async () => {
       const { a, b } = await montar();
       await expect(

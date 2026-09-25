@@ -58,6 +58,9 @@ describe('lista de models com tenant', () => {
   });
 });
 
+const criarClienteCom = (veiculos: unknown) =>
+  aplicarTenant('Cliente', 'oficinaId', 'create', { data: { telefone: 'x', veiculos } }, 'of-a');
+
 describe('escrita por relação (achado #1 da auditoria)', () => {
   const OPERADORES_PROIBIDOS = [
     'connect',
@@ -128,13 +131,11 @@ describe('escrita por relação (achado #1 da auditoria)', () => {
   });
 
   it('dentro do create aninhado valem as mesmas regras', () => {
-    const tentar = (veiculos: unknown) => () =>
-      aplicarTenant('Cliente', 'oficinaId', 'create', { data: { telefone: 'x', veiculos } }, 'of-a');
-    expect(tentar({ create: { placa: 'ABC1234', ordensServico: { connect: { id: 'os-b' } } } })).toThrow(TenantViolacaoError);
-    expect(tentar({ createMany: { data: [{ placa: 'ABC1234', oficina: { connect: { id: 'of-b' } } }] } })).toThrow(
+    expect(() => criarClienteCom({ create: { placa: 'ABC1234', ordensServico: { connect: { id: 'os-b' } } } })).toThrow(TenantViolacaoError);
+    expect(() => criarClienteCom({ createMany: { data: [{ placa: 'ABC1234', oficina: { connect: { id: 'of-b' } } }] } })).toThrow(
       TenantViolacaoError,
     );
-    expect(tentar({ create: { placa: 'ABC1234', oficinaId: 'of-b' } })).toThrow(TenantViolacaoError);
+    expect(() => criarClienteCom({ create: { placa: 'ABC1234', oficinaId: 'of-b' } })).toThrow(TenantViolacaoError);
   });
 
   it('create aninhado a partir da Oficina é recusado (FK simples para Oficina, não composta)', () => {
@@ -161,6 +162,8 @@ describe('escrita por relação (achado #1 da auditoria)', () => {
   });
 });
 
+const nomeRelacao = (atributos: string) => /@relation\("(\w+)"/.exec(atributos)?.[1];
+
 type CampoSchema = { nome: string; tipo: string; atributos: string };
 
 function lerSchema(): Map<string, CampoSchema[]> {
@@ -182,7 +185,6 @@ function lerSchema(): Map<string, CampoSchema[]> {
 
 describe('mapa de relações com tenant', () => {
   const modelos = lerSchema();
-  const nomeRelacao = (atributos: string) => /@relation\("(\w+)"/.exec(atributos)?.[1];
 
   it('bate com os campos de relação do schema (todos os models)', () => {
     const esperado: Record<string, Record<string, string>> = {};

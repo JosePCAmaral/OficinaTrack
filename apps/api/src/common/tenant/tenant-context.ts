@@ -43,6 +43,7 @@ export class TenantContext {
    * um fluxo sem tenant (ex.: aceite de convite), use `executarComo`.
    */
   definirOficina(oficinaId: string): void {
+    if (!this.cls.isActive()) throw new Error('definirOficina fora de um contexto CLS ativo');
     if (this.ignorandoTenant()) {
       throw new Error('definirOficina não pode ser chamado dentro de executarSemTenant; use executarComo');
     }

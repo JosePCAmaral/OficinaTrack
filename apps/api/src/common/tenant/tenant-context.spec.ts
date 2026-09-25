@@ -45,6 +45,6 @@ describe('TenantContext.definirOficina (achado #3 da auditoria)', () => {
   });
 
   it('fora de contexto CLS ativo lança erro', () => {
-    expect(() => tenant.definirOficina('of-a')).toThrow();
+    expect(() => tenant.definirOficina('of-a')).toThrow(/contexto CLS ativo/);
   });
 });

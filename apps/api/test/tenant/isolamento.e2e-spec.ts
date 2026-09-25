@@ -4,6 +4,8 @@ import { TenantAusenteError, TenantContext, TenantViolacaoError } from '../../sr
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { criarCliente, criarOficina, criarUsuario, criarVeiculo } from '../fabricas.js';
 
+const donos = (lista: Array<{ id: string; oficinaId: string }>) => Object.fromEntries(lista.map((r) => [r.id, r.oficinaId]));
+
 describe('Isolamento entre oficinas (extensão do Prisma)', () => {
   let modulo: TestingModule;
   let prisma: PrismaService;
@@ -144,7 +146,6 @@ describe('Isolamento entre oficinas (extensão do Prisma)', () => {
       await expect(tentar()).rejects.toThrow(TenantViolacaoError);
       const depois = await verdade();
       expect(depois).toEqual(antes);
-      const donos = (lista: Array<{ id: string; oficinaId: string }>) => Object.fromEntries(lista.map((r) => [r.id, r.oficinaId]));
       expect(donos(depois.clientes)).toEqual({ [clienteA.id]: oficinaA, [clienteB.id]: oficinaB });
       expect(donos(depois.veiculos)).toEqual({ [veiculoA.id]: oficinaA, [veiculoB.id]: oficinaB });
     });
