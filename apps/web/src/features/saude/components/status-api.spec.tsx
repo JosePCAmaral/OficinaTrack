@@ -18,7 +18,7 @@ describe('StatusApi', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('mostra carregando e depois o sistema no ar', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respostaOk()));
+    vi.stubGlobal('fetch', vi.fn<() => Promise<Response>>().mockResolvedValue(respostaOk()));
     renderizar();
     expect(screen.getByRole('status')).toHaveTextContent('Verificando');
     expect(await screen.findByText('Sistema no ar')).toBeInTheDocument();

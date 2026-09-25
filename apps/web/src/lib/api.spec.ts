@@ -14,12 +14,18 @@ describe('api', () => {
 
   it('transforma o erro padrão da API em ErroApi', async () => {
     const corpo = { statusCode: 404, code: 'RECURSO_NAO_ENCONTRADO', message: 'Recurso não encontrado' };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(corpo), { status: 404 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<() => Promise<Response>>().mockResolvedValue(new Response(JSON.stringify(corpo), { status: 404 })),
+    );
     await expect(api('/x')).rejects.toMatchObject({ statusCode: 404, code: 'RECURSO_NAO_ENCONTRADO' });
   });
 
   it('erro sem corpo JSON vira mensagem genérica', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('Bad Gateway', { status: 502 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<() => Promise<Response>>().mockResolvedValue(new Response('Bad Gateway', { status: 502 })),
+    );
     const erro = await api('/x').catch((e: unknown) => e);
     expect(erro).toBeInstanceOf(ErroApi);
     expect((erro as ErroApi).message).toBe('Não foi possível completar a ação. Tente de novo.');

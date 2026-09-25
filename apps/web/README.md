@@ -30,3 +30,10 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## shadcn CLI
+
+The `shadcn` devDependency is pinned to exactly `3.8.5`. Newer `4.x` releases (including `latest`) fail with
+`Could not load the workspace config in .../apps/web` inside this pnpm workspace. Use
+`pnpm --filter @oficinatrack/web exec shadcn add <component>` (not `pnpm dlx shadcn@latest ...`) so the pinned,
+working version is used.
