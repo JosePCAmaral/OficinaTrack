@@ -114,15 +114,24 @@ describe('T7/T8: configuração HTTP', () => {
 
   // Regressão T8: throttler global devolve 429 no formato padrão e não é contornado
   // trocando o X-Forwarded-For (trust proxy desligado).
+  // FATOR_LIMITES do ambiente de teste (T3, Sprint 2) multiplica os limites para não
+  // atrapalhar os outros testes; `fatorLimites()` lê `process.env` a cada requisição,
+  // então este teste reduz o fator só para si e restaura em seguida.
   it('throttler global limita e não confia em X-Forwarded-For', async () => {
-    const servidor = app.getHttpServer();
-    let ultimo = 200;
-    for (let i = 0; i < 130 && ultimo !== 429; i++) {
-      ultimo = (await request(servidor).get('/api/v1/saude').set('X-Forwarded-For', `10.0.0.${i % 250}`)).status;
+    const fatorOriginal = process.env.FATOR_LIMITES;
+    process.env.FATOR_LIMITES = '1';
+    try {
+      const servidor = app.getHttpServer();
+      let ultimo = 200;
+      for (let i = 0; i < 130 && ultimo !== 429; i++) {
+        ultimo = (await request(servidor).get('/api/v1/saude').set('X-Forwarded-For', `10.0.0.${i % 250}`)).status;
+      }
+      expect(ultimo).toBe(429);
+      const res = await request(servidor).get('/api/v1/saude').set('X-Forwarded-For', '10.9.9.9');
+      expect(res.status).toBe(429);
+      expect(res.body.code).toBe('MUITAS_REQUISICOES');
+    } finally {
+      process.env.FATOR_LIMITES = fatorOriginal;
     }
-    expect(ultimo).toBe(429);
-    const res = await request(servidor).get('/api/v1/saude').set('X-Forwarded-For', '10.9.9.9');
-    expect(res.status).toBe(429);
-    expect(res.body.code).toBe('MUITAS_REQUISICOES');
   });
 });

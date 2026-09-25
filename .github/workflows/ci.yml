@@ -26,6 +26,10 @@ jobs:
       DATABASE_URL: postgresql://oficinatrack:oficinatrack@localhost:5432/oficinatrack_test
       DATABASE_URL_TEST: postgresql://oficinatrack:oficinatrack@localhost:5432/oficinatrack_test
       CORS_ORIGEM: http://localhost:5173
+      JWT_SEGREDO: segredo-de-ci-com-mais-de-32-caracteres-para-testes
+      EMAIL_TRANSPORTE: memoria
+      URL_APP: http://localhost:5173
+      FATOR_LIMITES: '100'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

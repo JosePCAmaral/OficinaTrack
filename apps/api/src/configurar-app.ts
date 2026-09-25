@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import type { Env } from './config/env.js';
@@ -31,6 +32,7 @@ export function configurarApp(app: INestApplication): void {
   const express = app as NestExpressApplication;
 
   express.use(helmet());
+  express.use(cookieParser());
   express.useBodyParser('json', { limit: '100kb' });
   express.use(tratarErroDeBodyParser);
   express.enableCors({ origin: config.get('CORS_ORIGEM', { infer: true }), credentials: true });
