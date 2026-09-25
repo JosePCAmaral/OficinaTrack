@@ -7,7 +7,7 @@
     "dev": "pnpm -r --parallel dev",
     "build": "pnpm -r build",
     "build:shared": "pnpm --filter @oficinatrack/shared build",
-    "lint": "oxlint || exit 0",
+    "lint": "oxlint",
     "typecheck": "pnpm build:shared && pnpm -r typecheck",
     "test": "pnpm build:shared && pnpm -r test"
   },
