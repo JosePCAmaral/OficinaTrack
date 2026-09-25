@@ -1,4 +1,12 @@
+import { JwtService } from '@nestjs/jwt';
 import { criarApp, criarOficinaComUsuario, criarUsuarioNa, entrar, type App } from './apoio-auth.js';
+
+const base64url = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+
+/** Token `alg: none` cru (sem lib): cabeçalho e payload em base64url, assinatura vazia. */
+function tokenAlgNenhum(payload: Record<string, unknown>): string {
+  return `${base64url({ alg: 'none', typ: 'JWT' })}.${base64url(payload)}.`;
+}
 
 describe('Guards globais', () => {
   let ctx: App;
@@ -17,6 +25,14 @@ describe('Guards globais', () => {
     const adulterado = `${cab}.${corpo}.assinatura-falsa`;
     await ctx.http.get('/api/v1/auth/eu').set('Authorization', `Bearer ${adulterado}`).expect(401);
     await ctx.http.get('/api/v1/auth/eu').set('Authorization', 'Bearer lixo').expect(401);
+
+    const jwtOutroSegredo = new JwtService({ secret: 'outro-segredo-completamente-diferente-32+' });
+    const payload = { sub: usuario.id, oficinaId: usuario.oficinaId, perfil: 'DONO', fam: 'familia-forjada' };
+    const assinadoComOutroSegredo = await jwtOutroSegredo.signAsync(payload, { algorithm: 'HS256' });
+    await ctx.http.get('/api/v1/auth/eu').set('Authorization', `Bearer ${assinadoComOutroSegredo}`).expect(401);
+
+    const semAssinatura = tokenAlgNenhum(payload);
+    await ctx.http.get('/api/v1/auth/eu').set('Authorization', `Bearer ${semAssinatura}`).expect(401);
   });
 
   it('usuário desativado perde acesso na próxima chamada (Review Focus 4)', async () => {

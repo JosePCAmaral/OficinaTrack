@@ -5,6 +5,7 @@ import { verificarSenha } from '../../common/seguranca/senhas.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
 import { OficinasService } from '../oficinas/oficinas.service.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
+import { naoAutenticado } from './autenticacao.guard.js';
 import { LimiteTentativasService } from './limite-tentativas.service.js';
 import { SessoesService, type Sessao } from './sessoes.service.js';
 
@@ -51,7 +52,7 @@ export class AuthService {
   /** Chamar dentro do contexto da oficina do usuário. */
   async montarEu(usuarioId: string): Promise<UsuarioEu> {
     const usuario = await this.usuarios.buscarPorId(usuarioId);
-    if (!usuario) throw credenciaisInvalidas();
+    if (!usuario) throw naoAutenticado();
     const oficina = await this.oficinas.buscarAtual();
     return {
       id: usuario.id,

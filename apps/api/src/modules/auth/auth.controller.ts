@@ -10,7 +10,7 @@ import type { Env } from '../../config/env.js';
 import { AuthService } from './auth.service.js';
 import { COOKIE_REFRESH, definirCookieRefresh, limparCookieRefresh } from './cookie-refresh.js';
 import { Publico, UsuarioAtual, type UsuarioAutenticado } from './decorators.js';
-import { SessoesService } from './sessoes.service.js';
+import { SessaoConcorrenteError, SessoesService } from './sessoes.service.js';
 
 @Controller('auth')
 export class AuthController {
@@ -43,7 +43,8 @@ export class AuthController {
       definirCookieRefresh(res, sessao);
       return await this.auth.montarResposta(sessao);
     } catch (erro) {
-      limparCookieRefresh(res);
+      // perdedor de uma rotação concorrente: não limpa o cookie, o vencedor já gravou um novo
+      if (!(erro instanceof SessaoConcorrenteError)) limparCookieRefresh(res);
       throw erro;
     }
   }

@@ -1,5 +1,10 @@
 import { cookieRefresh, criarApp, criarOficinaComUsuario, criarUsuarioNa, entrar, ORIGEM, SENHA, type App } from './apoio-auth.js';
 
+/** Todos os `Set-Cookie` de uma resposta, como array (supertest devolve string única ou array). */
+function cookiesDe(res: { headers: Record<string, unknown> }): string[] {
+  return ([] as string[]).concat((res.headers['set-cookie'] as string[] | string | undefined) ?? []);
+}
+
 describe('Sessão: login, refresh, logout, eu', () => {
   let ctx: App;
   beforeAll(async () => { ctx = await criarApp(); });
@@ -61,7 +66,7 @@ describe('Sessão: login, refresh, logout, eu', () => {
     await ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', novo).expect(200);
   });
 
-  it('refresh concorrente (duas abas) não derruba a sessão (Review Focus 1)', async () => {
+  it('refresh concorrente (duas abas) não derruba a sessão nem apaga o cookie do vencedor (Review Focus 1)', async () => {
     const { usuario } = await criarOficinaComUsuario(ctx);
     const { cookie } = await entrar(ctx, usuario.email);
     const [a, b] = await Promise.all([
@@ -69,12 +74,19 @@ describe('Sessão: login, refresh, logout, eu', () => {
       ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', cookie),
     ]);
     const vencedor = [a, b].find((r) => r.status === 200)!;
+    const perdedor = [a, b].find((r) => r.status !== 200)!;
     expect(vencedor).toBeDefined();
+    expect(perdedor).toBeDefined();
+    expect(perdedor.status).toBe(401);
+    expect(perdedor.body.code).toBe('SESSAO_INVALIDA');
+    // o perdedor da corrida não pode limpar o cookie: num navegador real, essa resposta chegaria
+    // depois da do vencedor e apagaria o cookie novo (Review Focus 1)
+    expect(cookiesDe(perdedor).some((c) => c.startsWith('ot_refresh='))).toBe(false);
     // a família continua viva: o cookie novo do vencedor segue renovando
     await ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', cookieRefresh(vencedor)).expect(200);
   });
 
-  it('reuso de refresh antigo depois da tolerância revoga a família inteira', async () => {
+  it('reuso de refresh antigo depois da tolerância revoga a família inteira e limpa o cookie', async () => {
     const { usuario } = await criarOficinaComUsuario(ctx);
     const { cookie } = await entrar(ctx, usuario.email);
     const r1 = await ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', cookie).expect(200);
@@ -85,7 +97,20 @@ describe('Sessão: login, refresh, logout, eu', () => {
     );
     const reuso = await ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', cookie).expect(401);
     expect(reuso.body.code).toBe('SESSAO_INVALIDA');
+    // aqui é reuso real (fora da tolerância): diferente do perdedor concorrente, o cookie é limpo
+    expect(cookiesDe(reuso).some((c) => c.startsWith('ot_refresh=;'))).toBe(true);
     await ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', novo).expect(401);
+  });
+
+  it('refresh com token expirado → 401 e limpa o cookie', async () => {
+    const { usuario } = await criarOficinaComUsuario(ctx);
+    const { cookie } = await entrar(ctx, usuario.email);
+    await ctx.tenant.executarComo(usuario.oficinaId, () =>
+      ctx.prisma.db.refreshToken.updateMany({ where: { usuarioId: usuario.id }, data: { expiraEm: new Date(Date.now() - 1000) } }),
+    );
+    const r = await ctx.http.post('/api/v1/auth/refresh').set('Origin', ORIGEM).set('Cookie', cookie).expect(401);
+    expect(r.body.code).toBe('SESSAO_INVALIDA');
+    expect(cookiesDe(r).some((c) => c.startsWith('ot_refresh=;'))).toBe(true);
   });
 
   it('refresh sem Origin ou com Origin de outro site → 403', async () => {
