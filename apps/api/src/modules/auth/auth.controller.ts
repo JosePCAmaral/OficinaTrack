@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
@@ -6,7 +6,9 @@ import {
   cadastroSchema,
   emailApenasSchema,
   loginSchema,
+  redefinirSenhaSchema,
   tokenApenasSchema,
+  trocarSenhaSchema,
   type Cadastro,
   type Login,
   type RespostaSessao,
@@ -69,6 +71,33 @@ export class AuthController {
   async reenviarConfirmacao(@Body(new ZodValidationPipe(emailApenasSchema)) { email }: { email: string }): Promise<{ mensagem: string }> {
     await this.cadastroService.reenviarConfirmacao(email);
     return { mensagem: 'Se houver uma conta aguardando confirmação com este e-mail, enviamos um novo link' };
+  }
+
+  @Publico()
+  @Post('esqueci-senha')
+  @HttpCode(200)
+  @Throttle({ default: { limit: limite(3), ttl: 3_600_000 } })
+  async esqueciSenha(@Body(new ZodValidationPipe(emailApenasSchema)) { email }: { email: string }): Promise<{ mensagem: string }> {
+    await this.auth.esqueciSenha(email);
+    return { mensagem: 'Se houver uma conta com este e-mail, enviamos um link para criar uma nova senha' };
+  }
+
+  @Publico()
+  @Post('redefinir-senha')
+  @HttpCode(200)
+  @Throttle({ default: { limit: limite(10), ttl: 60_000 } })
+  async redefinirSenha(@Body(new ZodValidationPipe(redefinirSenhaSchema)) { token, senha }: { token: string; senha: string }): Promise<{ mensagem: string }> {
+    await this.auth.redefinirSenha(token, senha);
+    return { mensagem: 'Senha alterada. Entre com a nova senha' };
+  }
+
+  @Patch('senha')
+  @HttpCode(204)
+  async trocarSenha(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Body(new ZodValidationPipe(trocarSenhaSchema)) d: { senhaAtual: string; novaSenha: string },
+  ): Promise<void> {
+    await this.auth.trocarSenha(usuario, d.senhaAtual, d.novaSenha);
   }
 
   @Publico()
