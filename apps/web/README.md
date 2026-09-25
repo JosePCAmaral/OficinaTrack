@@ -1,39 +1,46 @@
-# React + TypeScript + Vite
+# @oficinatrack/web
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Frontend do OficinaTrack: React + Vite + TypeScript + Tailwind CSS + shadcn/ui +
+TanStack Query. Atende dois públicos no mesmo app, com *code splitting*:
 
-Currently, two official plugins are available:
+- **Painel da oficina** — telas autenticadas (pátio, ordens de serviço, orçamentos, clientes/veículos).
+- **Portal do cliente** — rotas públicas `/c/:token` (PWA, sem senha).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Detalhes de arquitetura em `../../docs/03-arquitetura.md`.
 
-## React Compiler
+## Rodando localmente
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Comandos completos (instalação, banco, dev, testes) na raiz do monorepo, em
+`../../CLAUDE.md`, seção **Comandos**. Resumo:
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+pnpm install
+pnpm --filter @oficinatrack/web dev   # http://localhost:5173, proxy de /api para a API na porta 3000
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Testes
 
-## shadcn CLI
+```bash
+pnpm --filter @oficinatrack/web test
+```
 
-The `shadcn` devDependency is pinned to exactly `3.8.5`. Newer `4.x` releases (including `latest`) fail with
-`Could not load the workspace config in .../apps/web` inside this pnpm workspace. Use
-`pnpm --filter @oficinatrack/web exec shadcn add <component>` (not `pnpm dlx shadcn@latest ...`) so the pinned,
-working version is used.
+## Lint e checagem de tipos
+
+```bash
+pnpm --filter @oficinatrack/web build     # tsc -b && vite build
+pnpm --filter @oficinatrack/web typecheck # tsc -b --noEmit
+pnpm lint                                 # oxlint, na raiz do monorepo
+```
+
+## Componentes shadcn/ui
+
+O `shadcn` está fixado em exatamente `3.8.5` nas dependências. Versões `4.x` (inclusive
+`latest`) falham com `Could not load the workspace config in .../apps/web` dentro deste
+workspace pnpm. Para adicionar um componente, use sempre:
+
+```bash
+pnpm --filter @oficinatrack/web exec shadcn add <componente>
+```
+
+Nunca `pnpm dlx shadcn@latest ...` — isso baixaria a versão mais recente, que não funciona
+neste monorepo.

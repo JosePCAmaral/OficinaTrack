@@ -38,16 +38,20 @@ pnpm monorepo · `apps/api` NestJS + Prisma + PostgreSQL · `apps/web` React + V
 - Datas em UTC no banco/API; exibição em `America/Sao_Paulo`.
 - Commits no padrão Conventional Commits (`feat(os): ...`).
 
-## Comandos (atualize quando o projeto existir)
+## Comandos
 
 ```bash
 pnpm install
-docker compose up -d          # postgres + minio
-pnpm --filter api prisma migrate dev
-pnpm dev                      # api + web
-pnpm test                     # todos os testes
+cp apps/api/.env.example apps/api/.env
+docker compose up -d --wait        # postgres (bancos oficinatrack e oficinatrack_test)
+pnpm --filter @oficinatrack/api prisma:migrate
+pnpm dev                           # shared (watch) + api + web
+pnpm test                          # todos os testes (precisa do postgres rodando)
 pnpm lint
+pnpm typecheck
 ```
+
+A API sobe na porta `3000` por padrão (`PORT` em `apps/api/.env`); o servidor de dev do Vite (`apps/web`) faz proxy de `/api` para `http://localhost:3000`.
 
 ## Subagents disponíveis (`.claude/agents/`)
 
