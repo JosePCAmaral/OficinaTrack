@@ -36,8 +36,19 @@ export class TenantContext {
     return this.cls.isActive() && this.cls.get<boolean | undefined>(CHAVE_SEM_TENANT) === true;
   }
 
-  /** Chamado pelo guard de autenticação com o `oficinaId` do JWT. */
+  /**
+   * Chamado pelo guard de autenticação com o `oficinaId` do JWT, uma vez por requisição.
+   * Falha fechado: não pode ser usado dentro de `executarSemTenant` (o filtro continuaria
+   * desligado) nem trocar uma oficina já definida. Para "entrar" numa oficina a partir de
+   * um fluxo sem tenant (ex.: aceite de convite), use `executarComo`.
+   */
   definirOficina(oficinaId: string): void {
+    if (this.ignorandoTenant()) {
+      throw new Error('definirOficina não pode ser chamado dentro de executarSemTenant; use executarComo');
+    }
+    const atual = this.oficinaId();
+    if (atual === oficinaId) return;
+    if (atual !== undefined) throw new Error('Oficina já definida neste contexto com outro valor');
     this.cls.set(CHAVE_OFICINA, oficinaId);
   }
 
