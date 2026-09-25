@@ -6,5 +6,13 @@
     "no-console": "error",
     "react/react-in-jsx-scope": "off"
   },
+  "overrides": [
+    {
+      "files": ["apps/api/src/**/*.module.ts"],
+      "rules": {
+        "typescript/no-extraneous-class": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["**/dist/**", "**/generated/**", "**/coverage/**", "**/node_modules/**"]
 }
