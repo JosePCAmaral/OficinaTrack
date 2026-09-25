@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PerfilUsuario } from '@oficinatrack/shared';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
+import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService, type Db, type Tx } from '../../prisma/prisma.service.js';
 import { USUARIO_DESATIVADO, type UsuarioDesativado } from './eventos.js';
 
@@ -59,19 +60,51 @@ export class UsuariosService {
     return this.prisma.db.usuario.findMany({ orderBy: { nome: 'asc' }, select: CAMPOS_PUBLICOS });
   }
 
+  /**
+   * Leitura do alvo, contagem de outros DONOs ativos e gravação numa única transação
+   * serializável: sem isso, dois DONOs se rebaixando/desativando ao mesmo tempo poderiam
+   * passar os dois pela contagem antes de qualquer gravação e deixar a oficina sem DONO
+   * ativo (TOCTOU). O Postgres aborta uma das transações concorrentes com P2034; nesse
+   * caso tentamos de novo uma vez antes de devolver conflito ao chamador.
+   */
+  private executarAlteracao(id: string, dados: { perfil?: PerfilUsuario; ativo?: boolean }) {
+    return this.prisma.db.$transaction(
+      async (tx) => {
+        const alvo = await tx.usuario.findUniqueOrThrow({ where: { id }, select: CAMPOS_PUBLICOS });
+        const deixaDeSerDonoAtivo = alvo.perfil === 'DONO' && alvo.ativo && (dados.perfil === 'FUNCIONARIO' || dados.ativo === false);
+        if (deixaDeSerDonoAtivo) {
+          const outros = await tx.usuario.count({ where: { perfil: 'DONO', ativo: true, id: { not: id } } });
+          if (outros === 0) throw new ErroNegocio(422, 'ULTIMO_DONO', 'A oficina precisa de pelo menos um dono ativo');
+        }
+        const atualizado = await tx.usuario.update({ where: { id }, data: dados, select: CAMPOS_PUBLICOS });
+        return { atualizado, desativou: alvo.ativo && dados.ativo === false };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
   /** Na requisição autenticada. Regras: não altera a si mesmo; sempre sobra um DONO ativo. */
   async alterar(id: string, dados: { perfil?: PerfilUsuario; ativo?: boolean }, ator: { id: string; oficinaId: string }) {
     if (id === ator.id) throw new ErroNegocio(422, 'ACAO_NAO_PERMITIDA_EM_SI_MESMO', 'Você não pode alterar o próprio perfil ou se desativar');
-    const alvo = await this.prisma.db.usuario.findUniqueOrThrow({ where: { id }, select: CAMPOS_PUBLICOS });
-    const deixaDeSerDonoAtivo = alvo.perfil === 'DONO' && alvo.ativo && (dados.perfil === 'FUNCIONARIO' || dados.ativo === false);
-    if (deixaDeSerDonoAtivo) {
-      const outros = await this.prisma.db.usuario.count({ where: { perfil: 'DONO', ativo: true, id: { not: id } } });
-      if (outros === 0) throw new ErroNegocio(422, 'ULTIMO_DONO', 'A oficina precisa de pelo menos um dono ativo');
+
+    let resultado: Awaited<ReturnType<typeof this.executarAlteracao>>;
+    try {
+      resultado = await this.executarAlteracao(id, dados);
+    } catch (erro) {
+      if (!(erro instanceof Prisma.PrismaClientKnownRequestError) || erro.code !== 'P2034') throw erro;
+      try {
+        resultado = await this.executarAlteracao(id, dados);
+      } catch (erroRetentativa) {
+        if (erroRetentativa instanceof Prisma.PrismaClientKnownRequestError && erroRetentativa.code === 'P2034') {
+          throw new ErroNegocio(409, 'CONFLITO', 'Outra alteração na equipe aconteceu ao mesmo tempo. Tente de novo');
+        }
+        throw erroRetentativa;
+      }
     }
-    const atualizado = await this.prisma.db.usuario.update({ where: { id }, data: dados, select: CAMPOS_PUBLICOS });
-    if (alvo.ativo && dados.ativo === false) {
+
+    if (resultado.desativou) {
       await this.eventos.emitAsync(USUARIO_DESATIVADO, { oficinaId: ator.oficinaId, usuarioId: id } satisfies UsuarioDesativado);
     }
-    return atualizado;
+    return resultado.atualizado;
   }
 }

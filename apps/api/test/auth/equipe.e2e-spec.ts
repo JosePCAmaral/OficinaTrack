@@ -74,4 +74,30 @@ describe('Oficina e equipe', () => {
     const intacto = await ctx.tenant.executarComo(oficina.id, () => ctx.prisma.db.usuario.findUnique({ where: { id: dono.id } }));
     expect(intacto).toMatchObject({ perfil: 'DONO', ativo: true });
   });
+
+  // Dois DONOs se rebaixando um ao outro ao mesmo tempo: sem transação serializável, os dois
+  // poderiam passar pela contagem de "outros DONOs ativos" antes de qualquer gravação e a
+  // oficina ficaria sem nenhum DONO ativo (TOCTOU).
+  it('concorrência: dois DONOs se rebaixando ao mesmo tempo nunca deixam a oficina sem DONO ativo', async () => {
+    const { oficina, usuario: donoA } = await criarOficinaComUsuario(ctx);
+    const donoB = await criarUsuarioNa(ctx, oficina.id, 'DONO');
+    const usuarios = ctx.app.get(UsuariosService);
+
+    const resultados = await ctx.tenant.executarComo(oficina.id, () =>
+      Promise.allSettled([
+        usuarios.alterar(donoB.id, { perfil: 'FUNCIONARIO' }, { id: donoA.id, oficinaId: oficina.id }),
+        usuarios.alterar(donoA.id, { perfil: 'FUNCIONARIO' }, { id: donoB.id, oficinaId: oficina.id }),
+      ]),
+    );
+
+    const rejeitados = resultados.filter((r) => r.status === 'rejected');
+    expect(rejeitados.length).toBeGreaterThanOrEqual(1);
+    for (const r of rejeitados) {
+      expect((r as PromiseRejectedResult).reason).toMatchObject({ code: expect.stringMatching(/^(ULTIMO_DONO|CONFLITO)$/) });
+    }
+    const donosAtivos = await ctx.tenant.executarComo(oficina.id, () =>
+      ctx.prisma.db.usuario.count({ where: { id: { in: [donoA.id, donoB.id] }, perfil: 'DONO', ativo: true } }),
+    );
+    expect(donosAtivos).toBeGreaterThanOrEqual(1);
+  });
 });
