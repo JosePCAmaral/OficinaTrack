@@ -27,3 +27,12 @@ export class PrismaService implements OnModuleDestroy {
     await this.base.$disconnect();
   }
 }
+
+type DbTopoTransacao = PrismaService['db'];
+/** Cliente recebido dentro de `db.$transaction(async (tx) => …)`. */
+export type Tx = Parameters<Parameters<DbTopoTransacao['$transaction']>[0]>[0];
+/**
+ * Cliente aceito por services: o topo (`PrismaService['db']`) ou um `Tx` dentro de uma
+ * transação em andamento — ambos com a mesma superfície de consulta filtrada por tenant.
+ */
+export type Db = DbTopoTransacao | Tx;

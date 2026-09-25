@@ -37,6 +37,7 @@ export async function montarOficina({ prisma, tenant }: Ctx, nome: string) {
         oficinaId: oficina.id,
         nome: `Dono ${nome}`,
         email: `dono-${sufixo()}@teste.local`,
+        emailConfirmadoEm: new Date(),
         senhaHash: 'hash-de-teste-nao-e-senha',
         perfil: 'DONO',
       },

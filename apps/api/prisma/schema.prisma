@@ -52,6 +52,11 @@ enum StatusItem {
   RECUSADO
 }
 
+enum TipoTokenUsuario {
+  CONFIRMAR_EMAIL
+  REDEFINIR_SENHA
+}
+
 model Oficina {
   id              String   @id @default(cuid())
   nome            String
@@ -79,40 +84,45 @@ model Oficina {
   orcamentos     Orcamento[]
   itensOrcamento ItemOrcamento[]
   acessosCliente AcessoCliente[]
+  tokensUsuario  TokenUsuario[]
+  codigoPiloto   CodigoPiloto?
 }
 
 model Usuario {
-  id           String        @id @default(cuid())
-  oficinaId    String
-  oficina      Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
-  nome         String
-  email        String?       @unique
-  telefone     String?       @unique
-  senhaHash    String
-  perfil       PerfilUsuario
-  ativo        Boolean       @default(true)
-  criadoEm     DateTime      @default(now())
-  atualizadoEm DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  oficinaId         String
+  oficina           Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  nome              String
+  email             String        @unique
+  emailConfirmadoEm DateTime?
+  telefone          String?       @unique
+  senhaHash         String
+  perfil            PerfilUsuario
+  ativo             Boolean       @default(true)
+  criadoEm          DateTime      @default(now())
+  atualizadoEm      DateTime      @updatedAt
 
   refreshTokens   RefreshToken[]
   convitesCriados Convite[]
   osResponsavel   OrdemServico[] @relation("ResponsavelOS")
   eventos         EventoOS[]
+  tokens          TokenUsuario[]
 
   @@unique([oficinaId, id])
 }
 
 model RefreshToken {
-  id         String    @id @default(cuid())
-  oficinaId  String
-  oficina    Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
-  usuarioId  String
-  usuario    Usuario   @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
-  familiaId  String // tokens da mesma sessão; reuso de um token revoga a família (T3)
-  tokenHash  String    @unique
-  expiraEm   DateTime
-  revogadoEm DateTime?
-  criadoEm   DateTime  @default(now())
+  id            String    @id @default(cuid())
+  oficinaId     String
+  oficina       Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  usuarioId     String
+  usuario       Usuario   @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  familiaId     String // tokens da mesma sessão; reuso de um token revoga a família (T3)
+  tokenHash     String    @unique
+  expiraEm      DateTime
+  revogadoEm    DateTime?
+  substituidoEm DateTime? // rotação: token trocado por outro da mesma família (diferente de revogadoEm)
+  criadoEm      DateTime  @default(now())
 
   @@index([oficinaId, usuarioId])
   @@index([familiaId])
@@ -123,7 +133,7 @@ model Convite {
   oficinaId   String
   oficina     Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   nome        String
-  email       String?
+  email       String
   telefone    String? // E.164
   perfil      PerfilUsuario @default(FUNCIONARIO)
   tokenHash   String        @unique
@@ -316,4 +326,31 @@ model AcessoCliente {
   criadoEm    DateTime  @default(now())
 
   @@index([oficinaId, clienteId])
+}
+
+model TokenUsuario {
+  id        String           @id @default(cuid())
+  oficinaId String
+  oficina   Oficina          @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  usuarioId String
+  usuario   Usuario          @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  tipo      TipoTokenUsuario
+  tokenHash String           @unique
+  expiraEm  DateTime
+  usadoEm   DateTime?
+  criadoEm  DateTime         @default(now())
+
+  @@index([oficinaId, usuarioId, tipo])
+}
+
+/// Global (sem tenant): códigos gerados pelo administrador para liberar o cadastro no piloto.
+model CodigoPiloto {
+  id         String    @id @default(cuid())
+  codigoHash String    @unique
+  descricao  String
+  expiraEm   DateTime
+  usadoEm    DateTime?
+  oficinaId  String?   @unique
+  oficina    Oficina?  @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  criadoEm   DateTime  @default(now())
 }

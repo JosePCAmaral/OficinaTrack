@@ -3,6 +3,7 @@
  * Todo model novo com `oficinaId` precisa entrar aqui; o teste
  * "lista de models com tenant bate com o schema" falha se esquecer.
  * `Oficina` é tratada à parte (filtrada por `id`).
+ * Models globais (sem `oficinaId`): `CodigoPiloto`.
  */
 export const MODELOS_COM_TENANT: ReadonlySet<string> = new Set([
   'Usuario',
@@ -17,4 +18,5 @@ export const MODELOS_COM_TENANT: ReadonlySet<string> = new Set([
   'Orcamento',
   'ItemOrcamento',
   'AcessoCliente',
+  'TokenUsuario',
 ]);

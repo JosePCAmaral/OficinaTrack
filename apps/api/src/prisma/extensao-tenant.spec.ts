@@ -49,10 +49,12 @@ describe('aplicarTenant', () => {
 });
 
 describe('lista de models com tenant', () => {
-  it('bate com os models do schema que têm oficinaId', () => {
+  it('bate com os models do schema que têm oficinaId obrigatório', () => {
     const schema = readFileSync(new URL('../../prisma/schema.prisma', import.meta.url), 'utf8');
+    // `String` sem `?`: um model global pode ter um `oficinaId String?` opcional apontando
+    // PARA uma oficina (ex.: `CodigoPiloto`) sem ser, ele mesmo, um model com tenant.
     const comOficinaId = [...schema.matchAll(/model (\w+) \{([^}]*)\}/g)]
-      .filter(([, , corpo]) => /^\s*oficinaId\s+String/m.test(corpo ?? ''))
+      .filter(([, , corpo]) => /^\s*oficinaId\s+String(?!\?)/m.test(corpo ?? ''))
       .map(([, nome]) => nome);
     expect(new Set(comOficinaId)).toEqual(MODELOS_COM_TENANT);
   });
@@ -185,10 +187,18 @@ function lerSchema(): Map<string, CampoSchema[]> {
 
 describe('mapa de relações com tenant', () => {
   const modelos = lerSchema();
+  // Escopo dos dois testes de sincronia abaixo: Oficina + models com tenant. Models GLOBAIS
+  // (ex.: `CodigoPiloto`, sem `oficinaId`) ficam fora de propósito: `RELACOES_TENANT` e
+  // `CRIACAO_ANINHADA_PERMITIDA` existem para a extensão de tenant, que nem intercepta as
+  // operações de um model global (`campoTenant` devolve `null`). `CodigoPiloto` continua
+  // reconhecido como TIPO de campo (para o filtro `modelos.has(c.tipo)` abaixo), só não vira
+  // uma entrada própria no mapa — daí `modelosComEntradaNoMapa` em vez de `modelos` no loop.
+  const modelosComEntradaNoMapa = new Set(['Oficina', ...MODELOS_COM_TENANT]);
 
-  it('bate com os campos de relação do schema (todos os models)', () => {
+  it('bate com os campos de relação do schema (Oficina + models com tenant)', () => {
     const esperado: Record<string, Record<string, string>> = {};
     for (const [modelo, campos] of modelos) {
+      if (!modelosComEntradaNoMapa.has(modelo)) continue;
       esperado[modelo] = Object.fromEntries(campos.filter((c) => modelos.has(c.tipo)).map((c) => [c.nome, c.tipo]));
     }
     expect(RELACOES_TENANT).toEqual(esperado);
@@ -201,6 +211,7 @@ describe('mapa de relações com tenant', () => {
   it('create aninhado só nas relações cujo filho usa FK composta (oficinaId, xId)', () => {
     const esperado: Record<string, Set<string>> = {};
     for (const [modelo, campos] of modelos) {
+      if (!modelosComEntradaNoMapa.has(modelo)) continue;
       esperado[modelo] = new Set(
         campos
           // lado "filho" da relação: sem `fields:` neste model

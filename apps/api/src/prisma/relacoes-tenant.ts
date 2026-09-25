@@ -6,6 +6,12 @@
  * dentro de `data` (nunca pelo formato do valor: há campos Json como `itens`/`avarias`).
  * O teste "mapa de relações com tenant" compara com `prisma/schema.prisma` e falha se um
  * campo de relação for criado/renomeado sem atualizar aqui.
+ *
+ * `CodigoPiloto` é global (sem `oficinaId`, filtrada `campoTenant` retorna `null`) e por isso
+ * NÃO tem entrada própria aqui: a extensão não intercepta suas operações, então não há
+ * escrita por relação para validar nesse sentido. Ele aparece só como ALVO da relação
+ * `Oficina.codigoPiloto` (Oficina continua com tenant, então a chave em `data.codigoPiloto`
+ * é recusada normalmente pela extensão).
  */
 export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   Oficina: {
@@ -21,6 +27,8 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
     orcamentos: 'Orcamento',
     itensOrcamento: 'ItemOrcamento',
     acessosCliente: 'AcessoCliente',
+    tokensUsuario: 'TokenUsuario',
+    codigoPiloto: 'CodigoPiloto',
   },
   Usuario: {
     oficina: 'Oficina',
@@ -28,6 +36,7 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
     convitesCriados: 'Convite',
     osResponsavel: 'OrdemServico',
     eventos: 'EventoOS',
+    tokens: 'TokenUsuario',
   },
   RefreshToken: { oficina: 'Oficina', usuario: 'Usuario' },
   Convite: { oficina: 'Oficina', criadoPor: 'Usuario' },
@@ -49,6 +58,7 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
   Orcamento: { oficina: 'Oficina', ordemServico: 'OrdemServico', itens: 'ItemOrcamento' },
   ItemOrcamento: { oficina: 'Oficina', orcamento: 'Orcamento' },
   AcessoCliente: { oficina: 'Oficina', cliente: 'Cliente' },
+  TokenUsuario: { oficina: 'Oficina', usuario: 'Usuario' },
 };
 
 /**
@@ -59,7 +69,7 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
  */
 export const CRIACAO_ANINHADA_PERMITIDA: Readonly<Record<string, ReadonlySet<string>>> = {
   Oficina: new Set(),
-  Usuario: new Set(['refreshTokens', 'convitesCriados', 'osResponsavel', 'eventos']),
+  Usuario: new Set(['refreshTokens', 'convitesCriados', 'osResponsavel', 'eventos', 'tokens']),
   RefreshToken: new Set(),
   Convite: new Set(),
   Cliente: new Set(['veiculos', 'ordensServico', 'acessos']),
@@ -71,4 +81,5 @@ export const CRIACAO_ANINHADA_PERMITIDA: Readonly<Record<string, ReadonlySet<str
   Orcamento: new Set(['itens']),
   ItemOrcamento: new Set(),
   AcessoCliente: new Set(),
+  TokenUsuario: new Set(),
 };

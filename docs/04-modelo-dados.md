@@ -19,11 +19,15 @@
 15. **`RefreshToken.familiaId`**: agrupa os refresh tokens da mesma sessão; o reuso de um token já rotacionado revoga toda a família (mitiga a ameaça T3 — tomada de conta / detecção de reuso de refresh token — ver `docs/06-seguranca.md`).
 16. **`oficinaId` é imutável**: `ON UPDATE RESTRICT` em toda FK para `Oficina` e em toda FK composta, mais o trigger `impedir_troca_oficina()` (`BEFORE UPDATE`) em toda tabela com tenant, que lança erro quando `NEW."oficinaId" <> OLD."oficinaId"` (vale também para SQL cru).
 17. **Escrita por relação é proibida pela extensão de tenant**: services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. Ver `docs/03-arquitetura.md` (Multi-tenancy) e `apps/api/src/prisma/relacoes-tenant.ts`.
+18. **`Usuario.email` é obrigatório e único** (migração `contas_e_acesso`, Sprint 2); `emailConfirmadoEm` marca quando o e-mail foi confirmado pelo link (fluxo de conta). `Convite.email` também passa a ser obrigatório. Nenhuma migração preenche e-mail sozinha: um bloco `DO $$ ... RAISE EXCEPTION` falha alto se houver linha nula antes do `SET NOT NULL`.
+19. **`TokenUsuario`** (tenant): tokens de uso único para confirmar e-mail ou redefinir senha (`TipoTokenUsuario`), com `tokenHash` (SHA-256) e FK composta `(oficinaId, usuarioId) → Usuario`, mesmo padrão de `RefreshToken`. `RefreshToken.substituidoEm` marca a rotação (token trocado por outro da mesma família), diferente de `revogadoEm` (revogação por reuso/logout/desativação).
+20. **`CodigoPiloto` é o primeiro model global do schema** (sem `oficinaId` obrigatório): códigos que o administrador gera para liberar o cadastro de uma oficina no piloto. `oficinaId` é opcional e `@unique` — marca qual oficina já usou aquele código, não filtra por tenant. Fora de `MODELOS_COM_TENANT` e de `RELACOES_TENANT`/`CRIACAO_ANINHADA_PERMITIDA` como chave própria (a extensão de tenant não intercepta suas operações: `campoTenant('CodigoPiloto')` devolve `null`); aparece só como ALVO da relação `Oficina.codigoPiloto`. Acesso sempre dentro de `tenant.executarSemTenant(...)`, comentado, como qualquer busca sem oficina no contexto.
 
 ## Diagrama (resumo)
 
 ```
 Oficina 1─* Usuario 1─* RefreshToken
+Oficina 1─* Usuario 1─* TokenUsuario
 Oficina 1─* Convite *─1 Usuario (criadoPor)
 Oficina 1─* Cliente 1─* Veiculo
 Oficina 1─* OrdemServico *─1 Veiculo
@@ -33,6 +37,7 @@ OrdemServico 1─1 ChecklistEntrada
 OrdemServico 1─* EventoOS 1─* Foto
 OrdemServico 1─* Orcamento 1─* ItemOrcamento
 Cliente 1─* AcessoCliente
+Oficina 0..1─0..1 CodigoPiloto (global, sem oficinaId obrigatório)
 ```
 
 ## Schema Prisma (real — sincronizado com `apps/api/prisma/schema.prisma`)
@@ -46,7 +51,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // Prisma 7+: a URL de conexão fica em prisma.config.ts (DATABASE_URL), não aqui.
 }
 
 enum PerfilUsuario {
@@ -93,6 +97,11 @@ enum StatusItem {
   RECUSADO
 }
 
+enum TipoTokenUsuario {
+  CONFIRMAR_EMAIL
+  REDEFINIR_SENHA
+}
+
 model Oficina {
   id              String   @id @default(cuid())
   nome            String
@@ -120,40 +129,45 @@ model Oficina {
   orcamentos     Orcamento[]
   itensOrcamento ItemOrcamento[]
   acessosCliente AcessoCliente[]
+  tokensUsuario  TokenUsuario[]
+  codigoPiloto   CodigoPiloto?
 }
 
 model Usuario {
-  id           String        @id @default(cuid())
-  oficinaId    String
-  oficina      Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
-  nome         String
-  email        String?       @unique
-  telefone     String?       @unique
-  senhaHash    String
-  perfil       PerfilUsuario
-  ativo        Boolean       @default(true)
-  criadoEm     DateTime      @default(now())
-  atualizadoEm DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  oficinaId         String
+  oficina           Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  nome              String
+  email             String        @unique
+  emailConfirmadoEm DateTime?
+  telefone          String?       @unique
+  senhaHash         String
+  perfil            PerfilUsuario
+  ativo             Boolean       @default(true)
+  criadoEm          DateTime      @default(now())
+  atualizadoEm      DateTime      @updatedAt
 
   refreshTokens   RefreshToken[]
   convitesCriados Convite[]
   osResponsavel   OrdemServico[] @relation("ResponsavelOS")
   eventos         EventoOS[]
+  tokens          TokenUsuario[]
 
   @@unique([oficinaId, id])
 }
 
 model RefreshToken {
-  id         String    @id @default(cuid())
-  oficinaId  String
-  oficina    Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
-  usuarioId  String
-  usuario    Usuario   @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
-  familiaId  String // tokens da mesma sessão; reuso de um token revoga a família (T3)
-  tokenHash  String    @unique
-  expiraEm   DateTime
-  revogadoEm DateTime?
-  criadoEm   DateTime  @default(now())
+  id            String    @id @default(cuid())
+  oficinaId     String
+  oficina       Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  usuarioId     String
+  usuario       Usuario   @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  familiaId     String // tokens da mesma sessão; reuso de um token revoga a família (T3)
+  tokenHash     String    @unique
+  expiraEm      DateTime
+  revogadoEm    DateTime?
+  substituidoEm DateTime? // rotação: token trocado por outro da mesma família (diferente de revogadoEm)
+  criadoEm      DateTime  @default(now())
 
   @@index([oficinaId, usuarioId])
   @@index([familiaId])
@@ -164,7 +178,7 @@ model Convite {
   oficinaId   String
   oficina     Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   nome        String
-  email       String?
+  email       String
   telefone    String? // E.164
   perfil      PerfilUsuario @default(FUNCIONARIO)
   tokenHash   String        @unique
@@ -358,6 +372,33 @@ model AcessoCliente {
 
   @@index([oficinaId, clienteId])
 }
+
+model TokenUsuario {
+  id        String           @id @default(cuid())
+  oficinaId String
+  oficina   Oficina          @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  usuarioId String
+  usuario   Usuario          @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  tipo      TipoTokenUsuario
+  tokenHash String           @unique
+  expiraEm  DateTime
+  usadoEm   DateTime?
+  criadoEm  DateTime         @default(now())
+
+  @@index([oficinaId, usuarioId, tipo])
+}
+
+/// Global (sem tenant): códigos gerados pelo administrador para liberar o cadastro no piloto.
+model CodigoPiloto {
+  id         String    @id @default(cuid())
+  codigoHash String    @unique
+  descricao  String
+  expiraEm   DateTime
+  usadoEm    DateTime?
+  oficinaId  String?   @unique
+  oficina    Oficina?  @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  criadoEm   DateTime  @default(now())
+}
 ```
 
 ## Migração inicial
@@ -375,6 +416,15 @@ model AcessoCliente {
 - **Limpeza:** removido `@@index([oficinaId])` de `ChecklistEntrada` (redundante com `@@unique([oficinaId, ordemServicoId])`); `Orcamento` passa de `@@unique([ordemServicoId, versao])` para `@@unique([oficinaId, ordemServicoId, versao])`, e o `@@index([oficinaId, ordemServicoId])` redundante saiu.
 - **Dados inválidos:** antes de criar as FKs, a migração zera `responsavelId`/`autorId`/`eventoId` que apontam para outra oficina (só existiam como artefato dos testes da auditoria no banco de teste). Nenhum registro é apagado.
 
+## Migração `contas_e_acesso` (Sprint 2, Tarefa 2)
+
+- **`Usuario.email` e `Convite.email` passam a `NOT NULL`.** Antes de cada `ALTER COLUMN ... SET NOT NULL`, um bloco `DO $$ ... RAISE EXCEPTION` falha a migração inteira se existir alguma linha com `email IS NULL` em qualquer uma das duas tabelas — a migração nunca inventa e-mail para preencher a coluna; corrigir os dados é responsabilidade de quem aplica.
+- **`Usuario.emailConfirmadoEm DateTime?`** (nova coluna): marca quando o e-mail foi confirmado pelo link enviado no cadastro/convite.
+- **`RefreshToken.substituidoEm DateTime?`** (nova coluna): marca a rotação (token trocado por outro da mesma família), separado de `revogadoEm` (revogação por reuso detectado, logout ou desativação do usuário).
+- **`TokenUsuario`** (nova tabela, com tenant): `id`, `oficinaId`, `usuarioId`, `tipo` (`TipoTokenUsuario`: `CONFIRMAR_EMAIL` | `REDEFINIR_SENHA`), `tokenHash` único, `expiraEm`, `usadoEm`, `criadoEm`. FK simples `oficinaId → Oficina` e FK composta `(oficinaId, usuarioId) → Usuario(oficinaId, id)` (`ON DELETE CASCADE`, `ON UPDATE RESTRICT`), igual ao padrão de `RefreshToken`. Índice `@@index([oficinaId, usuarioId, tipo])`. Trigger `TokenUsuario_oficina_imutavel` reaproveitando `impedir_troca_oficina()` (criada em `fks_tenant_restritas`).
+- **`CodigoPiloto`** (nova tabela, **global**, sem `oficinaId` obrigatório): `id`, `codigoHash` único, `descricao`, `expiraEm`, `usadoEm`, `oficinaId String? @unique` (marca qual oficina já usou o código, não filtra por tenant), FK simples opcional `oficinaId → Oficina` (`ON DELETE SET NULL`, `ON UPDATE RESTRICT` — o código continua existindo, só solto, se a oficina for removida), `criadoEm`. Fora de `MODELOS_COM_TENANT`; a extensão de tenant não intercepta suas operações (`campoTenant('CodigoPiloto')` devolve `null`), então todo acesso de produção deve ficar dentro de `tenant.executarSemTenant(...)` comentado, como qualquer leitura sem oficina no contexto.
+- **Ajuste nos testes de sincronia** (`apps/api/src/prisma/extensao-tenant.spec.ts`): os dois testes que comparam `RELACOES_TENANT`/`CRIACAO_ANINHADA_PERMITIDA` com o schema agora iteram só sobre `{Oficina, ...MODELOS_COM_TENANT}` (não sobre todo `model` do arquivo) — `CodigoPiloto`, sendo global, não tem entrada própria nesses mapas (só aparece como TIPO do campo `Oficina.codigoPiloto`, que continua reconhecido normalmente). O teste "lista de models com tenant" também passa a exigir `oficinaId String` sem `?` (`(?!\?)`), já que agora existe um model global com `oficinaId String?` opcional (`CodigoPiloto`) que não é, ele mesmo, um model com tenant. Ver `docs/auditorias/` ou o relatório da Tarefa 2 para o raciocínio completo.
+
 ## Desvios do rascunho original (Tarefa 4, Sprint 1)
 
 - **`ChecklistEntrada.ordemServicoId`** não pode ter `@unique` de campo único junto com a FK composta `@relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id])`: o Prisma 7 rejeita essa combinação em relações 1:1 (`P1012`, *"A one-to-one relation must use unique fields on the defining side"*). A unicidade da OS→checklist agora é garantida por `@@unique([oficinaId, ordemServicoId])`, que cumpre o mesmo papel (uma OS tem no máximo um checklist) e ainda começa por `oficinaId`.
@@ -383,7 +433,7 @@ model AcessoCliente {
 ## Observações para implementação
 
 - O schema foi validado com o Prisma **7.10.0** (fixado; a tag `latest` do pacote `prisma` aponta para 8.0 RC). Driver adapter `@prisma/adapter-pg`; conexão configurada em `apps/api/prisma.config.ts` (`defineConfig`/`env('DATABASE_URL')`), não no bloco `datasource` do schema.
-- **Models com tenant** (filtro automático por `oficinaId` da extensão de tenant do Prisma): `Usuario`, `RefreshToken`, `Convite`, `Cliente`, `Veiculo`, `OrdemServico`, `ChecklistEntrada`, `EventoOS`, `Foto`, `Orcamento`, `ItemOrcamento`, `AcessoCliente`.
+- **Models com tenant** (filtro automático por `oficinaId` da extensão de tenant do Prisma): `Usuario`, `RefreshToken`, `Convite`, `Cliente`, `Veiculo`, `OrdemServico`, `ChecklistEntrada`, `EventoOS`, `Foto`, `Orcamento`, `ItemOrcamento`, `AcessoCliente`, `TokenUsuario`. **Model global** (sem tenant, filtro nunca aplicado): `CodigoPiloto`.
 - **Escrita por relação:** services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. A extensão recusa o resto com `TenantViolacaoError`.
 - **Relação opcional com usuário (`responsavel`, `autor`) ou com evento (`Foto.evento`) é validada pelo banco** (FK composta): um id de outra oficina dá `P2003`.
 - **Mudança de status** sempre por um único método `OrdensServicoService.alterarStatus()`, que valida a transição, atualiza `statusDesde` e cria o `EventoOS` na mesma transação.

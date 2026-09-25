@@ -36,6 +36,7 @@ export function criarUsuario(prisma: PrismaService, tenant: TenantContext, ofici
         oficinaId,
         nome,
         email: `u-${Math.random().toString(36).slice(2)}@teste.local`,
+        emailConfirmadoEm: new Date(),
         senhaHash: 'hash-de-teste-nao-e-senha',
         perfil: 'FUNCIONARIO',
       },
