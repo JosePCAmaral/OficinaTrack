@@ -15,7 +15,7 @@ pnpm install
 cp apps/api/.env.example apps/api/.env
 docker compose up -d --wait                       # sobe o Postgres na raiz do repo
 pnpm --filter @oficinatrack/api prisma:migrate     # aplica as migrações
-pnpm --filter @oficinatrack/api dev                # nest start --watch, porta 3000
+pnpm --filter @oficinatrack/api dev                # nest start --watch, porta 3333
 ```
 
 ## Testes

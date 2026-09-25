@@ -15,7 +15,7 @@ Comandos completos (instalação, banco, dev, testes) na raiz do monorepo, em
 
 ```bash
 pnpm install
-pnpm --filter @oficinatrack/web dev   # http://localhost:5173, proxy de /api para a API na porta 3000
+pnpm --filter @oficinatrack/web dev   # http://localhost:5173, proxy de /api para a API na porta 3333
 ```
 
 ## Testes

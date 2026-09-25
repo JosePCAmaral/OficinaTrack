@@ -8,7 +8,7 @@ const valido = {
 describe('validarEnv', () => {
   it('aplica padrões', () => {
     const env = validarEnv(valido);
-    expect(env.PORT).toBe(3000);
+    expect(env.PORT).toBe(3333);
     expect(env.NODE_ENV).toBe('development');
   });
 
