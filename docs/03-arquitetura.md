@@ -117,7 +117,7 @@ oficinatrack/
 
 - **NestJS 12 em ESM** (`"type": "module"` em `apps/api/package.json`), não CommonJS.
 - **Vitest** em todo o monorepo (API, web e `packages/shared`), não Jest — um único runner para os três pacotes. Na API, `vitest.config.ts` roda os testes de unidade (`src/**/*.spec.ts`, `test/**/*.spec.ts`); `vitest.config.e2e.ts` roda os e2e (`test/**/*.e2e-spec.ts`) e precisa de Postgres.
-- **oxlint** como linter único do monorepo (`.oxlintrc.json` na raiz), no lugar de ESLint — checagem rápida e sem configuração pesada; regras de tipo (`oxlint-tsgolint`) ligadas na API.
+- **oxlint** como linter único do monorepo (`.oxlintrc.json` na raiz), no lugar de ESLint — checagem rápida e sem configuração pesada, sem regras *type-aware* (`oxlint-tsgolint`) ligadas nesta sprint.
 - **Prisma 7**, gerador `prisma-client` (não o antigo `prisma-client-js`, deprecado) com `output = "../src/generated/prisma"` e `moduleFormat = "esm"`, mais o *driver adapter* `@prisma/adapter-pg` — a URL de conexão fica em `apps/api/prisma.config.ts`, não no bloco `datasource` do schema. Detalhes em `docs/04-modelo-dados.md`.
 - **FKs compostas `(oficinaId, xId)` → `(oficinaId, id)`** em toda relação obrigatória entre tabelas da oficina: segunda camada de isolamento, a nível de banco, além da extensão de tenant do Prisma — impede que um registro da oficina A referencie um registro da oficina B mesmo que a extensão falhe ou seja contornada.
 - **`TenantContext.executarSemTenant()`** desliga o filtro automático de `oficinaId`. Uso restrito a: login, refresh de token, aceite de convite, portal do cliente (localizar o registro pelo hash do token antes de haver tenant), seeds e testes. Todo uso precisa de comentário no código justificando o motivo.
