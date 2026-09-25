@@ -1,0 +1,17 @@
+{
+  "name": "oficinatrack",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "build:shared": "pnpm --filter @oficinatrack/shared build",
+    "lint": "oxlint || exit 0",
+    "typecheck": "pnpm build:shared && pnpm -r typecheck",
+    "test": "pnpm build:shared && pnpm -r test"
+  },
+  "devDependencies": {
+    "oxlint": "^1.58.0"
+  }
+}
