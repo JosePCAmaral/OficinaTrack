@@ -18,6 +18,23 @@ export class TenantViolacaoError extends Error {
   }
 }
 
+/**
+ * Falha fechado (não aberto): um model que não está em `Oficina`, `MODELOS_COM_TENANT` nem
+ * `MODELOS_GLOBAIS` (`apps/api/src/prisma/modelos-tenant.ts`) é tratado como erro de
+ * configuração, nunca como "sem tenant, filtro desligado". Sem isso, esquecer de registrar um
+ * model novo (com `oficinaId` opcional, ou relacionado a um model com tenant) faria a extensão
+ * devolver dados de todas as oficinas silenciosamente.
+ */
+export class TenantModeloDesconhecidoError extends Error {
+  constructor(modelo: string, operacao: string) {
+    super(
+      `${modelo}.${operacao}: model não registrado em MODELOS_COM_TENANT nem em MODELOS_GLOBAIS ` +
+        '(apps/api/src/prisma/modelos-tenant.ts); a extensão de tenant não sabe se deve filtrar por oficina',
+    );
+    this.name = 'TenantModeloDesconhecidoError';
+  }
+}
+
 @Injectable()
 export class TenantContext {
   constructor(private readonly cls: ClsService) {}

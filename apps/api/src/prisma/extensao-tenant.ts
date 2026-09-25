@@ -1,6 +1,6 @@
 import { Prisma } from '../generated/prisma/client.js';
-import { TenantAusenteError, TenantContext, TenantViolacaoError } from '../common/tenant/tenant-context.js';
-import { MODELOS_COM_TENANT } from './modelos-tenant.js';
+import { TenantAusenteError, TenantContext, TenantModeloDesconhecidoError, TenantViolacaoError } from '../common/tenant/tenant-context.js';
+import { MODELOS_COM_TENANT, MODELOS_GLOBAIS } from './modelos-tenant.js';
 import { CRIACAO_ANINHADA_PERMITIDA, RELACOES_TENANT } from './relacoes-tenant.js';
 
 type Args = Record<string, unknown>;
@@ -21,9 +21,17 @@ const LEITURA_OU_FILTRO = new Set([
 const ATUALIZACAO = new Set(['update', 'updateMany', 'updateManyAndReturn']);
 const CRIACAO = new Set(['create', 'createMany', 'createManyAndReturn']);
 
-function campoTenant(modelo: string): CampoTenant | null {
+/**
+ * `null` = model global (`MODELOS_GLOBAIS`), sem filtro de tenant — de propósito, não por
+ * omissão. Um model que não está em nenhum dos três conjuntos (`Oficina`, `MODELOS_COM_TENANT`,
+ * `MODELOS_GLOBAIS`) é erro de configuração e falha fechado, nunca passa despercebido como
+ * "sem tenant".
+ */
+export function campoTenant(modelo: string, operacao: string): CampoTenant | null {
   if (modelo === 'Oficina') return 'id';
-  return MODELOS_COM_TENANT.has(modelo) ? 'oficinaId' : null;
+  if (MODELOS_COM_TENANT.has(modelo)) return 'oficinaId';
+  if (MODELOS_GLOBAIS.has(modelo)) return null;
+  throw new TenantModeloDesconhecidoError(modelo, operacao);
 }
 
 function comFiltro(where: unknown, campo: CampoTenant, oficinaId: string): Args {
@@ -119,7 +127,7 @@ export function extensaoTenant(tenant: TenantContext) {
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
-          const campo = campoTenant(model);
+          const campo = campoTenant(model, operation);
           if (!campo || tenant.ignorandoTenant()) return query(args);
           const oficinaId = tenant.oficinaId();
           if (!oficinaId) throw new TenantAusenteError(model, operation);

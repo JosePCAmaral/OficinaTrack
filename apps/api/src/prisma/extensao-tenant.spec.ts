@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { TenantViolacaoError } from '../common/tenant/tenant-context.js';
-import { aplicarTenant } from './extensao-tenant.js';
-import { MODELOS_COM_TENANT } from './modelos-tenant.js';
+import { TenantModeloDesconhecidoError, TenantViolacaoError } from '../common/tenant/tenant-context.js';
+import { aplicarTenant, campoTenant } from './extensao-tenant.js';
+import { MODELOS_COM_TENANT, MODELOS_GLOBAIS } from './modelos-tenant.js';
 import { CRIACAO_ANINHADA_PERMITIDA, RELACOES_TENANT } from './relacoes-tenant.js';
 
 describe('aplicarTenant', () => {
@@ -57,6 +57,25 @@ describe('lista de models com tenant', () => {
       .filter(([, , corpo]) => /^\s*oficinaId\s+String(?!\?)/m.test(corpo ?? ''))
       .map(([, nome]) => nome);
     expect(new Set(comOficinaId)).toEqual(MODELOS_COM_TENANT);
+  });
+});
+
+describe('campoTenant (Review Focus: falha fechada para model desconhecido)', () => {
+  it('resolve Oficina pelo id', () => {
+    expect(campoTenant('Oficina', 'findMany')).toBe('id');
+  });
+
+  it('resolve um model com tenant por oficinaId', () => {
+    expect(campoTenant('Cliente', 'findMany')).toBe('oficinaId');
+  });
+
+  it('devolve null para um model global (filtro desligado de propósito)', () => {
+    expect(campoTenant('CodigoPiloto', 'findMany')).toBeNull();
+  });
+
+  it('falha fechada para um model fora dos três conjuntos (novo model esquecido no mapa)', () => {
+    expect(() => campoTenant('ModeloInventadoNoTeste', 'findMany')).toThrow(TenantModeloDesconhecidoError);
+    expect(() => campoTenant('ModeloInventadoNoTeste', 'findMany')).toThrow(/MODELOS_COM_TENANT/);
   });
 });
 
@@ -228,5 +247,27 @@ describe('mapa de relações com tenant', () => {
     }
     const atual = Object.fromEntries(Object.entries(CRIACAO_ANINHADA_PERMITIDA).map(([m, s]) => [m, new Set(s)]));
     expect(atual).toEqual(esperado);
+  });
+
+  it('partição: todo model do schema é Oficina, MODELOS_COM_TENANT ou MODELOS_GLOBAIS — sem sobra nem sobreposição', () => {
+    const todosOsModels = new Set(modelos.keys());
+    const uniao = new Set(['Oficina', ...MODELOS_COM_TENANT, ...MODELOS_GLOBAIS]);
+    // Nenhum model do schema fica de fora dos três conjuntos (esquecer de registrar um model
+    // novo aqui é exatamente o cenário que faz `campoTenant` falhar aberto em vez de fechado).
+    expect(uniao).toEqual(todosOsModels);
+    // E os três conjuntos não se sobrepõem entre si.
+    expect(MODELOS_COM_TENANT.has('Oficina')).toBe(false);
+    expect(MODELOS_GLOBAIS.has('Oficina')).toBe(false);
+    for (const modelo of MODELOS_GLOBAIS) expect(MODELOS_COM_TENANT.has(modelo)).toBe(false);
+  });
+
+  it('nenhum model de MODELOS_GLOBAIS tem oficinaId obrigatório (só pode ser String? opcional)', () => {
+    const schema = readFileSync(new URL('../../prisma/schema.prisma', import.meta.url), 'utf8');
+    const comOficinaIdObrigatorio = new Set(
+      [...schema.matchAll(/model (\w+) \{([^}]*)\}/g)]
+        .filter(([, , corpo]) => /^\s*oficinaId\s+String(?!\?)/m.test(corpo ?? ''))
+        .map(([, nome]) => nome),
+    );
+    for (const modelo of MODELOS_GLOBAIS) expect(comOficinaIdObrigatorio.has(modelo)).toBe(false);
   });
 });
