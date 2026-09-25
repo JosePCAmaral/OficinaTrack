@@ -11,22 +11,24 @@
 7. **Aprovação só pelo cliente, pelo link** (revisão de 24/09/2026). Não existe campo para a oficina marcar o orçamento como aprovado; `respondidoEm`, `respostaIp` e `respostaUserAgent` são a prova.
 8. **Cadastro mínimo** (revisão de 24/09/2026): para abrir uma OS bastam placa, telefone do cliente e queixa. `Cliente.nome` e os dados do veículo são opcionais e completados depois.
 9. **Perfis:** só `DONO` e `FUNCIONARIO`. Na oficina pequena o mecânico faz toda a operação.
-10. **Isolamento por FK composta** (Sprint 1, Tarefa 4): toda relação **obrigatória** entre duas tabelas da oficina usa FK composta `(oficinaId, xId)` contra um `@@unique([oficinaId, id])` do lado referenciado. Isso impede, a nível de banco, que um registro da oficina A aponte para um registro da oficina B, mesmo antes de existir qualquer filtro de aplicação (extensão de tenant do Prisma, Tarefa 5).
-11. **Relações opcionais com `Usuario` (`responsavel`, `autor`) e `Foto.evento` usam FK simples** (sem `oficinaId`), porque uma FK composta com um campo opcional e outro obrigatório não é suportada de forma útil com `onDelete: SetNull` no Prisma/Postgres. A garantia de que o registro referenciado pertence à mesma oficina fica a cargo do *service* que grava esses campos (Sprints 3, 4 e 6), com teste de isolamento dedicado.
-12. **`RefreshToken` não tem `oficinaId`**: é infraestrutura de autenticação, consultada por `tokenHash` antes de existir qualquer contexto de tenant na requisição.
+10. **Isolamento por FK composta** (Sprint 1, Tarefa 4; ampliado na correção da auditoria): toda relação entre duas tabelas da oficina, obrigatória ou opcional, usa FK composta `(oficinaId, xId)` contra um `@@unique([oficinaId, id])` do lado referenciado. Isso impede, a nível de banco, que um registro da oficina A aponte para um registro da oficina B, mesmo antes de existir qualquer filtro de aplicação (extensão de tenant do Prisma, Tarefa 5).
+11. **Relações opcionais com `Usuario` (`responsavel`, `autor`) e `Foto.evento` também usam FK composta** (migração `fks_tenant_restritas`), com `onDelete: NoAction`: usuário é desativado, não apagado, e um `SET NULL` composto anularia também o `oficinaId`. `NoAction` (e não `Restrict`) porque apagar uma OS remove eventos e fotos na mesma instrução, e a checagem fica para o fim da instrução. Com o campo opcional nulo, a FK não é checada (`MATCH SIMPLE`); para "tirar o responsável", o service grava `responsavelId: null`.
+12. **`RefreshToken` tem `oficinaId`** (migração `fks_tenant_restritas`) e FK composta `(oficinaId, usuarioId) → Usuario(oficinaId, id)`. Está em `MODELOS_COM_TENANT`; o refresh (busca por `tokenHash` antes de existir tenant na requisição) roda dentro de `executarSemTenant`.
 13. **`Convite`** guarda o convite de um novo usuário da oficina (nome, telefone/e-mail, perfil) com `tokenHash` de uso único; `criadoPor` referencia o `Usuario` que criou o convite via FK composta `(oficinaId, criadoPorId)`.
 14. **`Oficina.termosVersao` / `Oficina.termosAceitosEm`**: versão dos termos de uso/LGPD aceitos no cadastro e o momento do aceite (auditoria de consentimento).
 15. **`RefreshToken.familiaId`**: agrupa os refresh tokens da mesma sessão; o reuso de um token já rotacionado revoga toda a família (mitiga a ameaça T3 — tomada de conta / detecção de reuso de refresh token — ver `docs/06-seguranca.md`).
+16. **`oficinaId` é imutável**: `ON UPDATE RESTRICT` em toda FK para `Oficina` e em toda FK composta, mais o trigger `impedir_troca_oficina()` (`BEFORE UPDATE`) em toda tabela com tenant, que lança erro quando `NEW."oficinaId" <> OLD."oficinaId"` (vale também para SQL cru).
+17. **Escrita por relação é proibida pela extensão de tenant**: services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. Ver `docs/03-arquitetura.md` (Multi-tenancy) e `apps/api/src/prisma/relacoes-tenant.ts`.
 
 ## Diagrama (resumo)
 
 ```
-Oficina 1─* Usuario
+Oficina 1─* Usuario 1─* RefreshToken
 Oficina 1─* Convite *─1 Usuario (criadoPor)
 Oficina 1─* Cliente 1─* Veiculo
 Oficina 1─* OrdemServico *─1 Veiculo
                          *─1 Cliente
-                         *─0..1 Usuario (responsavel, FK simples)
+                         *─0..1 Usuario (responsavel, FK composta)
 OrdemServico 1─1 ChecklistEntrada
 OrdemServico 1─* EventoOS 1─* Foto
 OrdemServico 1─* Orcamento 1─* ItemOrcamento
@@ -94,19 +96,20 @@ enum StatusItem {
 model Oficina {
   id              String   @id @default(cuid())
   nome            String
-  documento       String?  // CNPJ ou CPF, só dígitos
-  telefone        String   // E.164
+  documento       String? // CNPJ ou CPF, só dígitos
+  telefone        String // E.164
   endereco        String?
   cidade          String?
   uf              String?  @db.Char(2)
   logoKey         String?
   proximoNumeroOS Int      @default(1)
-  termosVersao    String   // versão dos termos aceitos no cadastro (LGPD)
+  termosVersao    String // versão dos termos aceitos no cadastro (LGPD)
   termosAceitosEm DateTime
   criadoEm        DateTime @default(now())
   atualizadoEm    DateTime @updatedAt
 
   usuarios       Usuario[]
+  refreshTokens  RefreshToken[]
   convites       Convite[]
   clientes       Cliente[]
   veiculos       Veiculo[]
@@ -122,7 +125,7 @@ model Oficina {
 model Usuario {
   id           String        @id @default(cuid())
   oficinaId    String
-  oficina      Oficina       @relation(fields: [oficinaId], references: [id])
+  oficina      Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   nome         String
   email        String?       @unique
   telefone     String?       @unique
@@ -142,31 +145,33 @@ model Usuario {
 
 model RefreshToken {
   id         String    @id @default(cuid())
+  oficinaId  String
+  oficina    Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   usuarioId  String
-  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  familiaId  String    // tokens da mesma sessão; reuso de um token revoga a família (T3)
+  usuario    Usuario   @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  familiaId  String // tokens da mesma sessão; reuso de um token revoga a família (T3)
   tokenHash  String    @unique
   expiraEm   DateTime
   revogadoEm DateTime?
   criadoEm   DateTime  @default(now())
 
-  @@index([usuarioId])
+  @@index([oficinaId, usuarioId])
   @@index([familiaId])
 }
 
 model Convite {
   id          String        @id @default(cuid())
   oficinaId   String
-  oficina     Oficina       @relation(fields: [oficinaId], references: [id])
+  oficina     Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   nome        String
   email       String?
-  telefone    String?       // E.164
+  telefone    String? // E.164
   perfil      PerfilUsuario @default(FUNCIONARIO)
   tokenHash   String        @unique
   expiraEm    DateTime
   usadoEm     DateTime?
   criadoPorId String
-  criadoPor   Usuario       @relation(fields: [oficinaId, criadoPorId], references: [oficinaId, id])
+  criadoPor   Usuario       @relation(fields: [oficinaId, criadoPorId], references: [oficinaId, id], onUpdate: Restrict)
   criadoEm    DateTime      @default(now())
 
   @@index([oficinaId, criadoEm])
@@ -175,12 +180,12 @@ model Convite {
 model Cliente {
   id           String   @id @default(cuid())
   oficinaId    String
-  oficina      Oficina  @relation(fields: [oficinaId], references: [id])
-  nome         String?  // opcional: abertura rápida só com telefone
-  telefone     String   // E.164, WhatsApp
+  oficina      Oficina  @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  nome         String? // opcional: abertura rápida só com telefone
+  telefone     String // E.164, WhatsApp
   email        String?
   documento    String?
-  observacoes  String?  // interno, nunca vai ao portal
+  observacoes  String? // interno, nunca vai ao portal
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
@@ -196,10 +201,10 @@ model Cliente {
 model Veiculo {
   id           String   @id @default(cuid())
   oficinaId    String
-  oficina      Oficina  @relation(fields: [oficinaId], references: [id])
+  oficina      Oficina  @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   clienteId    String
-  cliente      Cliente  @relation(fields: [oficinaId, clienteId], references: [oficinaId, id])
-  placa        String   // normalizada: AAA0A00 / AAA0000
+  cliente      Cliente  @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onUpdate: Restrict)
+  placa        String // normalizada: AAA0A00 / AAA0000
   marca        String?
   modelo       String?
   anoModelo    Int?
@@ -219,17 +224,17 @@ model Veiculo {
 model OrdemServico {
   id              String    @id @default(cuid())
   oficinaId       String
-  oficina         Oficina   @relation(fields: [oficinaId], references: [id])
+  oficina         Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   numero          Int
   veiculoId       String
-  veiculo         Veiculo   @relation(fields: [oficinaId, veiculoId], references: [oficinaId, id])
+  veiculo         Veiculo   @relation(fields: [oficinaId, veiculoId], references: [oficinaId, id], onUpdate: Restrict)
   clienteId       String
-  cliente         Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id])
+  cliente         Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onUpdate: Restrict)
   responsavelId   String?
-  responsavel     Usuario?  @relation("ResponsavelOS", fields: [responsavelId], references: [id])
+  responsavel     Usuario?  @relation("ResponsavelOS", fields: [oficinaId, responsavelId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   status          StatusOS  @default(TRIAGEM)
   statusDesde     DateTime  @default(now())
-  relatoCliente   String    // queixa: obrigatória na abertura
+  relatoCliente   String // queixa: obrigatória na abertura
   diagnostico     String?
   kmEntrada       Int?
   previsaoEntrega DateTime?
@@ -251,10 +256,10 @@ model OrdemServico {
 model ChecklistEntrada {
   id               String       @id @default(cuid())
   oficinaId        String
-  oficina          Oficina      @relation(fields: [oficinaId], references: [id])
+  oficina          Oficina      @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId   String
-  ordemServico     OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
-  nivelCombustivel Int?         // 0 a 100
+  ordemServico     OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  nivelCombustivel Int? // 0 a 100
   km               Int?
   itens            Json         @default("[]") // [{ chave: "estepe", presente: true }]
   avarias          Json         @default("[]") // [{ local: "porta_dianteira_esq", descricao: "risco" }]
@@ -262,17 +267,16 @@ model ChecklistEntrada {
   criadoEm         DateTime     @default(now())
 
   @@unique([oficinaId, ordemServicoId])
-  @@index([oficinaId])
 }
 
 model EventoOS {
   id             String       @id @default(cuid())
   oficinaId      String
-  oficina        Oficina      @relation(fields: [oficinaId], references: [id])
+  oficina        Oficina      @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId String
-  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
-  autorId        String?      // null = cliente/sistema
-  autor          Usuario?     @relation(fields: [autorId], references: [id])
+  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  autorId        String? // null = cliente/sistema
+  autor          Usuario?     @relation(fields: [oficinaId, autorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   tipo           TipoEvento
   texto          String?
   statusDe       StatusOS?
@@ -289,11 +293,11 @@ model EventoOS {
 model Foto {
   id             String       @id @default(cuid())
   oficinaId      String
-  oficina        Oficina      @relation(fields: [oficinaId], references: [id])
+  oficina        Oficina      @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId String
-  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
+  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   eventoId       String?
-  evento         EventoOS?    @relation(fields: [eventoId], references: [id])
+  evento         EventoOS?    @relation(fields: [oficinaId, eventoId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   storageKey     String
   legenda        String?
   visivelCliente Boolean      @default(true)
@@ -305,9 +309,9 @@ model Foto {
 model Orcamento {
   id                String          @id @default(cuid())
   oficinaId         String
-  oficina           Oficina         @relation(fields: [oficinaId], references: [id])
+  oficina           Oficina         @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId    String
-  ordemServico      OrdemServico    @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
+  ordemServico      OrdemServico    @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   versao            Int
   status            StatusOrcamento @default(RASCUNHO)
   observacoes       String?
@@ -321,16 +325,15 @@ model Orcamento {
   itens ItemOrcamento[]
 
   @@unique([oficinaId, id])
-  @@unique([ordemServicoId, versao])
-  @@index([oficinaId, ordemServicoId])
+  @@unique([oficinaId, ordemServicoId, versao])
 }
 
 model ItemOrcamento {
   id                    String     @id @default(cuid())
   oficinaId             String
-  oficina               Oficina    @relation(fields: [oficinaId], references: [id])
+  oficina               Oficina    @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   orcamentoId           String
-  orcamento             Orcamento  @relation(fields: [oficinaId, orcamentoId], references: [oficinaId, id], onDelete: Cascade)
+  orcamento             Orcamento  @relation(fields: [oficinaId, orcamentoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   tipo                  TipoItem
   descricao             String
   quantidade            Decimal    @db.Decimal(10, 3)
@@ -344,9 +347,9 @@ model ItemOrcamento {
 model AcessoCliente {
   id          String    @id @default(cuid())
   oficinaId   String
-  oficina     Oficina   @relation(fields: [oficinaId], references: [id])
+  oficina     Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   clienteId   String
-  cliente     Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onDelete: Cascade)
+  cliente     Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   tokenHash   String    @unique
   expiraEm    DateTime
   revogadoEm  DateTime?
@@ -361,7 +364,16 @@ model AcessoCliente {
 
 - Nome: `schema_inicial_mvp` (`apps/api/prisma/migrations/<timestamp>_schema_inicial_mvp/migration.sql`).
 - **FKs compostas `(oficinaId, xId)` → `(oficinaId, id)`** confirmadas na migração para: `Veiculo.oficinaId,clienteId → Cliente`, `OrdemServico.oficinaId,veiculoId → Veiculo`, `OrdemServico.oficinaId,clienteId → Cliente`, `Convite.oficinaId,criadoPorId → Usuario`, `ChecklistEntrada.oficinaId,ordemServicoId → OrdemServico`, `EventoOS.oficinaId,ordemServicoId → OrdemServico`, `Foto.oficinaId,ordemServicoId → OrdemServico`, `Orcamento.oficinaId,ordemServicoId → OrdemServico`, `ItemOrcamento.oficinaId,orcamentoId → Orcamento`, `AcessoCliente.oficinaId,clienteId → Cliente`.
-- **FKs simples** (por desenho, não por limitação): `Usuario.oficinaId → Oficina` (e o mesmo padrão para as demais tabelas → `Oficina`, que não precisa ser composta pois `Oficina` é a raiz do tenant), `RefreshToken.usuarioId → Usuario` (sem `oficinaId`), `OrdemServico.responsavelId → Usuario` (opcional), `EventoOS.autorId → Usuario` (opcional), `Foto.eventoId → EventoOS` (opcional).
+- **FKs simples** (por desenho): `<Tabela>.oficinaId → Oficina`, que não precisa ser composta pois `Oficina` é a raiz do tenant. (Nesta migração inicial, `RefreshToken.usuarioId`, `OrdemServico.responsavelId`, `EventoOS.autorId` e `Foto.eventoId` ainda eram simples; viraram compostas em `fks_tenant_restritas`, abaixo.)
+
+## Migração `fks_tenant_restritas` (correção da auditoria de 2026-09-25)
+
+- **FKs compostas novas:** `OrdemServico.oficinaId,responsavelId → Usuario`, `EventoOS.oficinaId,autorId → Usuario`, `Foto.oficinaId,eventoId → EventoOS` (as três `ON DELETE NO ACTION`) e `RefreshToken.oficinaId,usuarioId → Usuario` (`ON DELETE CASCADE`). As FKs simples antigas dessas relações foram removidas.
+- **`ON UPDATE RESTRICT`** em todas as FKs (para `Oficina` e compostas); antes eram `ON UPDATE CASCADE` (padrão do Prisma), que propagava uma troca de oficina em vez de bloquear.
+- **`RefreshToken.oficinaId`**: coluna criada nula, preenchida a partir do `Usuario` dono do token e só então `NOT NULL`. Índice `@@index([usuarioId])` trocado por `@@index([oficinaId, usuarioId])`.
+- **Trigger** `impedir_troca_oficina()` + um `BEFORE UPDATE ... FOR EACH ROW` por tabela com tenant (`<Tabela>_oficina_imutavel`). Adicionado à mão no `migration.sql` (o Prisma não modela triggers).
+- **Limpeza:** removido `@@index([oficinaId])` de `ChecklistEntrada` (redundante com `@@unique([oficinaId, ordemServicoId])`); `Orcamento` passa de `@@unique([ordemServicoId, versao])` para `@@unique([oficinaId, ordemServicoId, versao])`, e o `@@index([oficinaId, ordemServicoId])` redundante saiu.
+- **Dados inválidos:** antes de criar as FKs, a migração zera `responsavelId`/`autorId`/`eventoId` que apontam para outra oficina (só existiam como artefato dos testes da auditoria no banco de teste). Nenhum registro é apagado.
 
 ## Desvios do rascunho original (Tarefa 4, Sprint 1)
 
@@ -371,8 +383,9 @@ model AcessoCliente {
 ## Observações para implementação
 
 - O schema foi validado com o Prisma **7.10.0** (fixado; a tag `latest` do pacote `prisma` aponta para 8.0 RC). Driver adapter `@prisma/adapter-pg`; conexão configurada em `apps/api/prisma.config.ts` (`defineConfig`/`env('DATABASE_URL')`), não no bloco `datasource` do schema.
-- **Models com tenant** (candidatos ao filtro automático por `oficinaId` da extensão de tenant do Prisma, Tarefa 5): `Usuario`, `Convite`, `Cliente`, `Veiculo`, `OrdemServico`, `ChecklistEntrada`, `EventoOS`, `Foto`, `Orcamento`, `ItemOrcamento`, `AcessoCliente`. `RefreshToken` fica de fora (não tem `oficinaId`; é infraestrutura de autenticação).
-- **Relação opcional com usuário (`responsavel`, `autor`) ou com evento (`Foto.evento`) é validada no service**, não pelo banco: como a FK é simples (sem `oficinaId`), o service que grava esses campos precisa confirmar que o registro referenciado pertence à mesma oficina antes de gravar, e ter teste de isolamento cobrindo esse caminho.
+- **Models com tenant** (filtro automático por `oficinaId` da extensão de tenant do Prisma): `Usuario`, `RefreshToken`, `Convite`, `Cliente`, `Veiculo`, `OrdemServico`, `ChecklistEntrada`, `EventoOS`, `Foto`, `Orcamento`, `ItemOrcamento`, `AcessoCliente`.
+- **Escrita por relação:** services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. A extensão recusa o resto com `TenantViolacaoError`.
+- **Relação opcional com usuário (`responsavel`, `autor`) ou com evento (`Foto.evento`) é validada pelo banco** (FK composta): um id de outra oficina dá `P2003`.
 - **Mudança de status** sempre por um único método `OrdensServicoService.alterarStatus()`, que valida a transição, atualiza `statusDesde` e cria o `EventoOS` na mesma transação.
 - **Total do orçamento** é calculado (não armazenado) no MVP: `Σ round(quantidade × valorUnitarioCentavos)`.
 - **Futuro (Plus):** `Peca`, `MovimentoEstoque`, `Fornecedor`, `Cotacao`; `ItemOrcamento.pecaId` opcional.

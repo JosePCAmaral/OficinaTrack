@@ -81,8 +81,12 @@ oficinatrack/
 - O `oficinaId` vem **sempre do token JWT**, nunca do body/query da requisição.
 - Um `TenantContext` (AsyncLocalStorage / `nestjs-cls`) guarda o `oficinaId` da requisição.
 - Uma **extensão do Prisma** injeta `where: { oficinaId }` automaticamente nos models da oficina e seta `oficinaId` nos creates. Queries sem contexto de tenant nesses models lançam erro.
+- **Escrita por relação é proibida.** Services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. A extensão recusa com `TenantViolacaoError` (500, falha fechada), em `data` de `create*`/`update*`/`upsert.create`/`upsert.update`: a chave `oficina`; `connect`, `connectOrCreate`, `set`, `disconnect`, `update`, `updateMany`, `upsert`, `delete`, `deleteMany` aninhados; e `create`/`createMany` aninhados em relação cujo filho não aponta de volta por FK composta (inclusive todas as relações a partir de `Oficina`). O `create` aninhado permitido é validado recursivamente com as mesmas regras. As relações são reconhecidas pelo nome do campo (`apps/api/src/prisma/relacoes-tenant.ts`, com teste que compara com o `schema.prisma`), nunca pelo formato do valor (há campos Json como `itens`/`avarias`).
+- **Três camadas de isolamento:** (1) extensão do Prisma (filtro, `oficinaId` forçado, escrita por relação recusada); (2) FKs compostas `(oficinaId, xId)` em toda relação entre tabelas da oficina, com `ON UPDATE RESTRICT`; (3) trigger `impedir_troca_oficina()` que torna o `oficinaId` imutável em toda tabela com tenant.
+- **`definirOficina()`** (guard da Sprint 2) só pode ser chamado uma vez por requisição, dentro de um contexto CLS ativo e nunca dentro de `executarSemTenant` (lança erro). Para "entrar" numa oficina a partir de um fluxo sem tenant (ex.: aceite de convite), use `executarComo`.
+- **`$queryRaw`/`$executeRaw` não passam pela extensão**: todo SQL cru precisa filtrar `oficinaId` à mão e entrar na lista revisada do teste `test/seguranca/padroes-codigo.e2e-spec.ts`.
 - Todo módulo tem **teste de isolamento**: usuário da oficina A tenta ler/alterar recurso da oficina B → 404.
-- Futuro opcional: Row Level Security no Postgres como segunda camada.
+- Futuro opcional: Row Level Security no Postgres como quarta camada.
 
 ## Portal do cliente (acesso por link)
 
@@ -119,7 +123,10 @@ oficinatrack/
 - **Vitest** em todo o monorepo (API, web e `packages/shared`), não Jest — um único runner para os três pacotes. Na API, `vitest.config.ts` roda os testes de unidade (`src/**/*.spec.ts`, `test/**/*.spec.ts`); `vitest.config.e2e.ts` roda os e2e (`test/**/*.e2e-spec.ts`) e precisa de Postgres.
 - **oxlint** como linter único do monorepo (`.oxlintrc.json` na raiz), no lugar de ESLint — checagem rápida e sem configuração pesada, sem regras *type-aware* (`oxlint-tsgolint`) ligadas nesta sprint.
 - **Prisma 7**, gerador `prisma-client` (não o antigo `prisma-client-js`, deprecado) com `output = "../src/generated/prisma"` e `moduleFormat = "esm"`, mais o *driver adapter* `@prisma/adapter-pg` — a URL de conexão fica em `apps/api/prisma.config.ts`, não no bloco `datasource` do schema. Detalhes em `docs/04-modelo-dados.md`.
-- **FKs compostas `(oficinaId, xId)` → `(oficinaId, id)`** em toda relação obrigatória entre tabelas da oficina: segunda camada de isolamento, a nível de banco, além da extensão de tenant do Prisma — impede que um registro da oficina A referencie um registro da oficina B mesmo que a extensão falhe ou seja contornada.
+- **FKs compostas `(oficinaId, xId)` → `(oficinaId, id)`** em toda relação entre tabelas da oficina, inclusive as opcionais (`OrdemServico.responsavel`, `EventoOS.autor`, `Foto.evento`, com `ON DELETE NO ACTION`) e `RefreshToken.usuario`: segunda camada de isolamento, a nível de banco, além da extensão de tenant do Prisma — impede que um registro da oficina A referencie um registro da oficina B mesmo que a extensão falhe ou seja contornada. Um `include` a partir dessas relações nunca traz dado de outra oficina.
+- **`ON UPDATE RESTRICT`** em toda FK para `Oficina` e em toda FK composta: `id` e `oficinaId` nunca mudam, então o banco bloqueia (em vez de propagar em cascata) qualquer tentativa de troca.
+- **Trigger `impedir_troca_oficina()`** (`BEFORE UPDATE` em toda tabela com tenant): lança erro quando `NEW."oficinaId" <> OLD."oficinaId"`. Terceira camada; vale também para SQL cru.
+- **`RefreshToken` tem `oficinaId`** e está em `MODELOS_COM_TENANT`. A busca pelo hash no refresh (Sprint 2) roda dentro de `executarSemTenant`, com comentário justificando.
 - **`TenantContext.executarSemTenant()`** desliga o filtro automático de `oficinaId`. Uso restrito a: login, refresh de token, aceite de convite, portal do cliente (localizar o registro pelo hash do token antes de haver tenant), seeds e testes. Todo uso precisa de comentário no código justificando o motivo.
 - **shadcn/ui fixado em `3.8.5`**: versões `4.x` (inclusive `latest`) falham com `Could not load the workspace config` dentro deste workspace pnpm. Instalar componentes com `pnpm --filter @oficinatrack/web exec shadcn add <componente>`, nunca `pnpm dlx shadcn@latest ...`.
 - **Banco de teste não é resetado entre execuções**: o `globalSetup` do Vitest e2e (`apps/api/test/setup-global.ts`) só roda `prisma migrate deploy`, nunca `migrate reset` — o Prisma 7 bloqueia `migrate reset` quando detecta execução por agente de IA sem confirmação humana. Consequência: **todo teste só pode fazer asserções sobre registros que ele mesmo criou**, nunca assumir banco vazio ou contar linhas totais de uma tabela.
@@ -134,3 +141,11 @@ oficinatrack/
 - Logs sem dados pessoais (mascarar telefone/CPF).
 - Termo de uso + política de privacidade simples; a oficina é a *controladora* dos dados dos clientes dela e nós somos *operadores*.
 - Backup diário do banco.
+- Erros do Prisma vão para o log só com `name`, `code` e `meta.modelName` (a `message` pode trazer os argumentos da consulta). P2002 → 409 `CONFLITO` sem ecoar campos.
+- Swagger (`/api/docs`) só com `NODE_ENV=development`.
+
+### Backlog de segurança (definir no deploy)
+
+- **`trust proxy`**: quando a plataforma for escolhida, `app.set('trust proxy', <nº exato de saltos>)`, nunca `true`. Sem isso o throttler vê o IP do proxy (todos no mesmo balde); com `true`, qualquer um contorna o limite trocando o `X-Forwarded-For`. Mais de uma instância → storage compartilhado do throttler.
+- **CSP do front** no host do `web` (`default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; img-src 'self' blob: data: <R2>; connect-src 'self' <API>`).
+- **CI**: fixar as actions por SHA e adicionar `.github/dependabot.yml` (npm + github-actions, semanal).

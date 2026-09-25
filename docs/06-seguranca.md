@@ -30,6 +30,11 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 - IDs são `cuid` (não sequenciais), mas **isso não é controle de acesso**.
 - Recurso de outra oficina → 404.
 - Teste de isolamento obrigatório em todo endpoint.
+- Escritas por relação (`connect`, `set`, `connectOrCreate`, `disconnect`, `oficina: { connect }`, update/delete aninhados) não passam pelo filtro de tenant: a extensão recusa em models com tenant e na `Oficina`. Só `create`/`createMany` aninhado em filho com FK composta é permitido. Services gravam FKs escalares (`clienteId`, `responsavelId: null`).
+- Toda relação entre models com tenant usa FK composta `(oficinaId, xId)`, inclusive as opcionais: um `include` a partir de FK simples não é filtrado e vazaria o registro de outra oficina.
+- `oficinaId` é imutável: `ON UPDATE RESTRICT` nas FKs e trigger `impedir_troca_oficina()` no banco.
+- `definirOficina` só uma vez por requisição e nunca dentro de `executarSemTenant` (lança erro); para entrar numa oficina a partir de um fluxo sem tenant, `executarComo`.
+- `$queryRaw`/`$executeRaw` não passam pela extensão: filtrar `oficinaId` à mão e registrar o arquivo no teste de padrões de código.
 
 ### T2 — Abuso do link do cliente: **alto**
 - Token com ≥ 32 bytes aleatórios (`crypto.randomBytes`), base64url; salvo só o SHA-256.
@@ -72,12 +77,14 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 - Logs sem telefone/CPF/e-mail completos, tokens, senhas ou headers `Authorization`/`Cookie`.
 - Segredos só em variáveis de ambiente; `.env` no `.gitignore`; `.env.example` sem valores reais.
 - Helmet, HTTPS obrigatório, HSTS, CORS só para o domínio do front.
-- Swagger desabilitado ou protegido em produção.
+- Swagger só com `NODE_ENV=development` (opt-in; deploy sem `NODE_ENV` ou com `test`/`staging` não publica).
+- Mensagens de erro do ORM podem conter os argumentos da query (dados pessoais): o filtro de erros loga só `name`, `code` e `meta.modelName` de erros do Prisma, nunca `message`/stack.
 
 ### T8 — Negação de serviço e abuso de custo: **baixo/médio**
 - Throttler global + limites específicos (login, portal, upload-url).
 - Tamanho máximo de body; paginação obrigatória com limite máximo.
 - Limite de fotos por OS e de URLs de upload por minuto (protege a conta do R2).
+- Atrás de proxy, configurar `trust proxy` com o número exato de saltos; nunca `true` (senão o `X-Forwarded-For` contorna o throttler).
 
 ### T9 — Dependências e cadeia de suprimentos: **médio**
 - `pnpm audit` no CI; Dependabot/Renovate.
