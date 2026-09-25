@@ -18,7 +18,7 @@ describe('Saúde e formato de erro (e2e)', () => {
 
   it('GET /api/v1/saude responde ok', async () => {
     const res = await request(app.getHttpServer()).get('/api/v1/saude').expect(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body).toEqual({ status: 'ok', banco: 'ok' });
   });
 
   it('rota inexistente usa o formato padrão de erro', async () => {

@@ -9,5 +9,6 @@ export default defineConfig({
     root: './',
     include: ['test/**/*.e2e-spec.ts'],
     env: ENV_TESTE,
+    globalSetup: ['./test/setup-global.ts'],
   },
 });

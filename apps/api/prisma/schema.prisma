@@ -1,41 +1,3 @@
-# 04 — Modelo de Dados
-
-## Decisões
-
-1. **Tudo que a oficina cadastra pertence à oficina** (`oficinaId`), inclusive `Cliente` e `Veiculo`. Se a mesma placa aparecer em duas oficinas, são dois registros de `Veiculo`, um para cada. Isso deixa a privacidade garantida por padrão e o MVP simples.
-2. **Histórico universal do carro (futuro):** tabelas globais `ContaCliente` (chave = telefone verificado) e `VeiculoGlobal` (chave = placa/chassi) que *apontam* para os registros de cada oficina. O dono do carro vê tudo, e cada oficina continua vendo só o seu. Compartilhar com outra oficina exige consentimento (`Compartilhamento`). **Não implementar no MVP**, mas não criar nada que impeça isso: placa e telefone sempre normalizados.
-3. Dinheiro em **centavos (Int)**.
-4. IDs em `cuid()`; número da OS é sequencial **por oficina** (`numero`), controlado por `Oficina.proximoNumeroOS` dentro de uma transação.
-5. `EventoOS` é a linha do tempo, append-only: o que o cliente vê é `EventoOS` com `visivelCliente = true`.
-6. Orçamento enviado é imutável; mudanças = nova `versao`.
-7. **Aprovação só pelo cliente, pelo link** (revisão de 24/09/2026). Não existe campo para a oficina marcar o orçamento como aprovado; `respondidoEm`, `respostaIp` e `respostaUserAgent` são a prova.
-8. **Cadastro mínimo** (revisão de 24/09/2026): para abrir uma OS bastam placa, telefone do cliente e queixa. `Cliente.nome` e os dados do veículo são opcionais e completados depois.
-9. **Perfis:** só `DONO` e `FUNCIONARIO`. Na oficina pequena o mecânico faz toda a operação.
-10. **Isolamento por FK composta** (Sprint 1, Tarefa 4): toda relação **obrigatória** entre duas tabelas da oficina usa FK composta `(oficinaId, xId)` contra um `@@unique([oficinaId, id])` do lado referenciado. Isso impede, a nível de banco, que um registro da oficina A aponte para um registro da oficina B, mesmo antes de existir qualquer filtro de aplicação (extensão de tenant do Prisma, Tarefa 5).
-11. **Relações opcionais com `Usuario` (`responsavel`, `autor`) e `Foto.evento` usam FK simples** (sem `oficinaId`), porque uma FK composta com um campo opcional e outro obrigatório não é suportada de forma útil com `onDelete: SetNull` no Prisma/Postgres. A garantia de que o registro referenciado pertence à mesma oficina fica a cargo do *service* que grava esses campos (Sprints 3, 4 e 6), com teste de isolamento dedicado.
-12. **`RefreshToken` não tem `oficinaId`**: é infraestrutura de autenticação, consultada por `tokenHash` antes de existir qualquer contexto de tenant na requisição.
-13. **`Convite`** guarda o convite de um novo usuário da oficina (nome, telefone/e-mail, perfil) com `tokenHash` de uso único; `criadoPor` referencia o `Usuario` que criou o convite via FK composta `(oficinaId, criadoPorId)`.
-14. **`Oficina.termosVersao` / `Oficina.termosAceitosEm`**: versão dos termos de uso/LGPD aceitos no cadastro e o momento do aceite (auditoria de consentimento).
-15. **`RefreshToken.familiaId`**: agrupa os refresh tokens da mesma sessão; o reuso de um token já rotacionado revoga toda a família (Tarefa 3 — rotação de refresh token).
-
-## Diagrama (resumo)
-
-```
-Oficina 1─* Usuario
-Oficina 1─* Convite *─1 Usuario (criadoPor)
-Oficina 1─* Cliente 1─* Veiculo
-Oficina 1─* OrdemServico *─1 Veiculo
-                         *─1 Cliente
-                         *─0..1 Usuario (responsavel, FK simples)
-OrdemServico 1─1 ChecklistEntrada
-OrdemServico 1─* EventoOS 1─* Foto
-OrdemServico 1─* Orcamento 1─* ItemOrcamento
-Cliente 1─* AcessoCliente
-```
-
-## Schema Prisma (real — sincronizado com `apps/api/prisma/schema.prisma`)
-
-```prisma
 generator client {
   provider     = "prisma-client"
   output       = "../src/generated/prisma"
@@ -44,7 +6,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // Prisma 7+: a URL de conexão fica em prisma.config.ts (DATABASE_URL), não aqui.
 }
 
 enum PerfilUsuario {
@@ -355,26 +316,3 @@ model AcessoCliente {
 
   @@index([oficinaId, clienteId])
 }
-```
-
-## Migração inicial
-
-- Nome: `schema_inicial_mvp` (`apps/api/prisma/migrations/<timestamp>_schema_inicial_mvp/migration.sql`).
-- **FKs compostas `(oficinaId, xId)` → `(oficinaId, id)`** confirmadas na migração para: `Veiculo.oficinaId,clienteId → Cliente`, `OrdemServico.oficinaId,veiculoId → Veiculo`, `OrdemServico.oficinaId,clienteId → Cliente`, `Convite.oficinaId,criadoPorId → Usuario`, `ChecklistEntrada.oficinaId,ordemServicoId → OrdemServico`, `EventoOS.oficinaId,ordemServicoId → OrdemServico`, `Foto.oficinaId,ordemServicoId → OrdemServico`, `Orcamento.oficinaId,ordemServicoId → OrdemServico`, `ItemOrcamento.oficinaId,orcamentoId → Orcamento`, `AcessoCliente.oficinaId,clienteId → Cliente`.
-- **FKs simples** (por desenho, não por limitação): `Usuario.oficinaId → Oficina` (e o mesmo padrão para as demais tabelas → `Oficina`, que não precisa ser composta pois `Oficina` é a raiz do tenant), `RefreshToken.usuarioId → Usuario` (sem `oficinaId`), `OrdemServico.responsavelId → Usuario` (opcional), `EventoOS.autorId → Usuario` (opcional), `Foto.eventoId → EventoOS` (opcional).
-
-## Desvios do rascunho original (Tarefa 4, Sprint 1)
-
-- **`ChecklistEntrada.ordemServicoId`** não pode ter `@unique` de campo único junto com a FK composta `@relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id])`: o Prisma 7 rejeita essa combinação em relações 1:1 (`P1012`, *"A one-to-one relation must use unique fields on the defining side"*). A unicidade da OS→checklist agora é garantida por `@@unique([oficinaId, ordemServicoId])`, que cumpre o mesmo papel (uma OS tem no máximo um checklist) e ainda começa por `oficinaId`.
-- O gerador `prisma-client` (não `prisma-client-js`) com `output = "../src/generated/prisma"` e `moduleFormat = "esm"` foi confirmado contra os tipos do pacote `prisma@7.10.0` instalado (`prisma/config.d.ts` reexporta `defineConfig`/`env`/`PrismaConfig` de `@prisma/config`, com a mesma forma `schema`/`migrations.path`/`datasource.url` usada em `apps/api/prisma.config.ts`) — sem divergência em relação ao rascunho anterior deste documento.
-
-## Observações para implementação
-
-- O schema foi validado com o Prisma **7.10.0** (fixado; a tag `latest` do pacote `prisma` aponta para 8.0 RC). Driver adapter `@prisma/adapter-pg`; conexão configurada em `apps/api/prisma.config.ts` (`defineConfig`/`env('DATABASE_URL')`), não no bloco `datasource` do schema.
-- **Models com tenant** (candidatos ao filtro automático por `oficinaId` da extensão de tenant do Prisma, Tarefa 5): `Usuario`, `Convite`, `Cliente`, `Veiculo`, `OrdemServico`, `ChecklistEntrada`, `EventoOS`, `Foto`, `Orcamento`, `ItemOrcamento`, `AcessoCliente`. `RefreshToken` fica de fora (não tem `oficinaId`; é infraestrutura de autenticação).
-- **Relação opcional com usuário (`responsavel`, `autor`) ou com evento (`Foto.evento`) é validada no service**, não pelo banco: como a FK é simples (sem `oficinaId`), o service que grava esses campos precisa confirmar que o registro referenciado pertence à mesma oficina antes de gravar, e ter teste de isolamento cobrindo esse caminho.
-- **Mudança de status** sempre por um único método `OrdensServicoService.alterarStatus()`, que valida a transição, atualiza `statusDesde` e cria o `EventoOS` na mesma transação.
-- **Total do orçamento** é calculado (não armazenado) no MVP: `Σ round(quantidade × valorUnitarioCentavos)`.
-- **Futuro (Plus):** `Peca`, `MovimentoEstoque`, `Fornecedor`, `Cotacao`; `ItemOrcamento.pecaId` opcional.
-- **Futuro (Ultra):** `Pagamento`, `ContaReceber`, `NotaFiscal`.
-- **Futuro (histórico universal):** `ContaCliente`, `VeiculoGlobal`, `Compartilhamento`.

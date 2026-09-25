@@ -3,12 +3,14 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validarEnv } from './config/env.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 import { SaudeModule } from './modules/saude/saude.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validarEnv }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    PrismaModule,
     SaudeModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
