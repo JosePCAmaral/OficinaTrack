@@ -55,19 +55,20 @@ enum StatusItem {
 model Oficina {
   id              String   @id @default(cuid())
   nome            String
-  documento       String?  // CNPJ ou CPF, só dígitos
-  telefone        String   // E.164
+  documento       String? // CNPJ ou CPF, só dígitos
+  telefone        String // E.164
   endereco        String?
   cidade          String?
   uf              String?  @db.Char(2)
   logoKey         String?
   proximoNumeroOS Int      @default(1)
-  termosVersao    String   // versão dos termos aceitos no cadastro (LGPD)
+  termosVersao    String // versão dos termos aceitos no cadastro (LGPD)
   termosAceitosEm DateTime
   criadoEm        DateTime @default(now())
   atualizadoEm    DateTime @updatedAt
 
   usuarios       Usuario[]
+  refreshTokens  RefreshToken[]
   convites       Convite[]
   clientes       Cliente[]
   veiculos       Veiculo[]
@@ -83,7 +84,7 @@ model Oficina {
 model Usuario {
   id           String        @id @default(cuid())
   oficinaId    String
-  oficina      Oficina       @relation(fields: [oficinaId], references: [id])
+  oficina      Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   nome         String
   email        String?       @unique
   telefone     String?       @unique
@@ -103,31 +104,33 @@ model Usuario {
 
 model RefreshToken {
   id         String    @id @default(cuid())
+  oficinaId  String
+  oficina    Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   usuarioId  String
-  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  familiaId  String    // tokens da mesma sessão; reuso de um token revoga a família (T3)
+  usuario    Usuario   @relation(fields: [oficinaId, usuarioId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  familiaId  String // tokens da mesma sessão; reuso de um token revoga a família (T3)
   tokenHash  String    @unique
   expiraEm   DateTime
   revogadoEm DateTime?
   criadoEm   DateTime  @default(now())
 
-  @@index([usuarioId])
+  @@index([oficinaId, usuarioId])
   @@index([familiaId])
 }
 
 model Convite {
   id          String        @id @default(cuid())
   oficinaId   String
-  oficina     Oficina       @relation(fields: [oficinaId], references: [id])
+  oficina     Oficina       @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   nome        String
   email       String?
-  telefone    String?       // E.164
+  telefone    String? // E.164
   perfil      PerfilUsuario @default(FUNCIONARIO)
   tokenHash   String        @unique
   expiraEm    DateTime
   usadoEm     DateTime?
   criadoPorId String
-  criadoPor   Usuario       @relation(fields: [oficinaId, criadoPorId], references: [oficinaId, id])
+  criadoPor   Usuario       @relation(fields: [oficinaId, criadoPorId], references: [oficinaId, id], onUpdate: Restrict)
   criadoEm    DateTime      @default(now())
 
   @@index([oficinaId, criadoEm])
@@ -136,12 +139,12 @@ model Convite {
 model Cliente {
   id           String   @id @default(cuid())
   oficinaId    String
-  oficina      Oficina  @relation(fields: [oficinaId], references: [id])
-  nome         String?  // opcional: abertura rápida só com telefone
-  telefone     String   // E.164, WhatsApp
+  oficina      Oficina  @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
+  nome         String? // opcional: abertura rápida só com telefone
+  telefone     String // E.164, WhatsApp
   email        String?
   documento    String?
-  observacoes  String?  // interno, nunca vai ao portal
+  observacoes  String? // interno, nunca vai ao portal
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
@@ -157,10 +160,10 @@ model Cliente {
 model Veiculo {
   id           String   @id @default(cuid())
   oficinaId    String
-  oficina      Oficina  @relation(fields: [oficinaId], references: [id])
+  oficina      Oficina  @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   clienteId    String
-  cliente      Cliente  @relation(fields: [oficinaId, clienteId], references: [oficinaId, id])
-  placa        String   // normalizada: AAA0A00 / AAA0000
+  cliente      Cliente  @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onUpdate: Restrict)
+  placa        String // normalizada: AAA0A00 / AAA0000
   marca        String?
   modelo       String?
   anoModelo    Int?
@@ -180,17 +183,17 @@ model Veiculo {
 model OrdemServico {
   id              String    @id @default(cuid())
   oficinaId       String
-  oficina         Oficina   @relation(fields: [oficinaId], references: [id])
+  oficina         Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   numero          Int
   veiculoId       String
-  veiculo         Veiculo   @relation(fields: [oficinaId, veiculoId], references: [oficinaId, id])
+  veiculo         Veiculo   @relation(fields: [oficinaId, veiculoId], references: [oficinaId, id], onUpdate: Restrict)
   clienteId       String
-  cliente         Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id])
+  cliente         Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onUpdate: Restrict)
   responsavelId   String?
-  responsavel     Usuario?  @relation("ResponsavelOS", fields: [responsavelId], references: [id])
+  responsavel     Usuario?  @relation("ResponsavelOS", fields: [oficinaId, responsavelId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   status          StatusOS  @default(TRIAGEM)
   statusDesde     DateTime  @default(now())
-  relatoCliente   String    // queixa: obrigatória na abertura
+  relatoCliente   String // queixa: obrigatória na abertura
   diagnostico     String?
   kmEntrada       Int?
   previsaoEntrega DateTime?
@@ -212,10 +215,10 @@ model OrdemServico {
 model ChecklistEntrada {
   id               String       @id @default(cuid())
   oficinaId        String
-  oficina          Oficina      @relation(fields: [oficinaId], references: [id])
+  oficina          Oficina      @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId   String
-  ordemServico     OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
-  nivelCombustivel Int?         // 0 a 100
+  ordemServico     OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  nivelCombustivel Int? // 0 a 100
   km               Int?
   itens            Json         @default("[]") // [{ chave: "estepe", presente: true }]
   avarias          Json         @default("[]") // [{ local: "porta_dianteira_esq", descricao: "risco" }]
@@ -223,17 +226,16 @@ model ChecklistEntrada {
   criadoEm         DateTime     @default(now())
 
   @@unique([oficinaId, ordemServicoId])
-  @@index([oficinaId])
 }
 
 model EventoOS {
   id             String       @id @default(cuid())
   oficinaId      String
-  oficina        Oficina      @relation(fields: [oficinaId], references: [id])
+  oficina        Oficina      @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId String
-  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
-  autorId        String?      // null = cliente/sistema
-  autor          Usuario?     @relation(fields: [autorId], references: [id])
+  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
+  autorId        String? // null = cliente/sistema
+  autor          Usuario?     @relation(fields: [oficinaId, autorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   tipo           TipoEvento
   texto          String?
   statusDe       StatusOS?
@@ -250,11 +252,11 @@ model EventoOS {
 model Foto {
   id             String       @id @default(cuid())
   oficinaId      String
-  oficina        Oficina      @relation(fields: [oficinaId], references: [id])
+  oficina        Oficina      @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId String
-  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
+  ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   eventoId       String?
-  evento         EventoOS?    @relation(fields: [eventoId], references: [id])
+  evento         EventoOS?    @relation(fields: [oficinaId, eventoId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   storageKey     String
   legenda        String?
   visivelCliente Boolean      @default(true)
@@ -266,9 +268,9 @@ model Foto {
 model Orcamento {
   id                String          @id @default(cuid())
   oficinaId         String
-  oficina           Oficina         @relation(fields: [oficinaId], references: [id])
+  oficina           Oficina         @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   ordemServicoId    String
-  ordemServico      OrdemServico    @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade)
+  ordemServico      OrdemServico    @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   versao            Int
   status            StatusOrcamento @default(RASCUNHO)
   observacoes       String?
@@ -282,16 +284,15 @@ model Orcamento {
   itens ItemOrcamento[]
 
   @@unique([oficinaId, id])
-  @@unique([ordemServicoId, versao])
-  @@index([oficinaId, ordemServicoId])
+  @@unique([oficinaId, ordemServicoId, versao])
 }
 
 model ItemOrcamento {
   id                    String     @id @default(cuid())
   oficinaId             String
-  oficina               Oficina    @relation(fields: [oficinaId], references: [id])
+  oficina               Oficina    @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   orcamentoId           String
-  orcamento             Orcamento  @relation(fields: [oficinaId, orcamentoId], references: [oficinaId, id], onDelete: Cascade)
+  orcamento             Orcamento  @relation(fields: [oficinaId, orcamentoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   tipo                  TipoItem
   descricao             String
   quantidade            Decimal    @db.Decimal(10, 3)
@@ -305,9 +306,9 @@ model ItemOrcamento {
 model AcessoCliente {
   id          String    @id @default(cuid())
   oficinaId   String
-  oficina     Oficina   @relation(fields: [oficinaId], references: [id])
+  oficina     Oficina   @relation(fields: [oficinaId], references: [id], onUpdate: Restrict)
   clienteId   String
-  cliente     Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onDelete: Cascade)
+  cliente     Cliente   @relation(fields: [oficinaId, clienteId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   tokenHash   String    @unique
   expiraEm    DateTime
   revogadoEm  DateTime?

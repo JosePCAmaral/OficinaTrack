@@ -6,6 +6,7 @@
  */
 export const MODELOS_COM_TENANT: ReadonlySet<string> = new Set([
   'Usuario',
+  'RefreshToken',
   'Convite',
   'Cliente',
   'Veiculo',
