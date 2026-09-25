@@ -38,7 +38,8 @@ export function configurarApp(app: INestApplication): void {
   express.useGlobalFilters(new FiltroErros());
   express.enableShutdownHooks();
 
-  if (config.get('NODE_ENV', { infer: true }) !== 'production') {
+  // opt-in: só em development. Um deploy sem NODE_ENV, ou com test/staging, não publica a doc.
+  if (config.get('NODE_ENV', { infer: true }) === 'development') {
     const doc = SwaggerModule.createDocument(
       express,
       new DocumentBuilder().setTitle('OficinaTrack API').setVersion('1').build(),
