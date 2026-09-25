@@ -2,7 +2,10 @@ import { z } from 'zod';
 import { normalizarPlaca } from '../placa.js';
 import { normalizarTelefone } from '../telefone.js';
 
-export const placaSchema = z.string().transform((valor, ctx) => {
+/** Limite de tamanho antes de normalizar (endurecimento: entrada absurda nem chega ao regex). */
+const MAX_ENTRADA = 20;
+
+export const placaSchema = z.string().max(MAX_ENTRADA).transform((valor, ctx) => {
   const placa = normalizarPlaca(valor);
   if (!placa) {
     ctx.addIssue({ code: 'custom', message: 'Placa inválida' });
@@ -11,7 +14,7 @@ export const placaSchema = z.string().transform((valor, ctx) => {
   return placa;
 });
 
-export const telefoneSchema = z.string().transform((valor, ctx) => {
+export const telefoneSchema = z.string().max(MAX_ENTRADA).transform((valor, ctx) => {
   const telefone = normalizarTelefone(valor);
   if (!telefone) {
     ctx.addIssue({ code: 'custom', message: 'Telefone inválido' });

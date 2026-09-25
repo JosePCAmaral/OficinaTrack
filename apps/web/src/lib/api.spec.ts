@@ -30,4 +30,22 @@ describe('api', () => {
     expect(erro).toBeInstanceOf(ErroApi);
     expect((erro as ErroApi).message).toBe('Não foi possível completar a ação. Tente de novo.');
   });
+
+  it('só define Content-Type JSON quando o corpo é string (FormData fica com o do navegador)', async () => {
+    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>().mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const cabecalhos = (i: number) => new Headers(fetchMock.mock.calls[i]?.[1].headers);
+
+    await api('/x', { method: 'POST', body: JSON.stringify({ a: 1 }) });
+    await api('/x', { method: 'POST', body: new FormData() });
+    await api('/x');
+    await api('/x', { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } });
+
+    expect(cabecalhos(0).get('Content-Type')).toBe('application/json');
+    expect(cabecalhos(1).has('Content-Type')).toBe(false);
+    expect(cabecalhos(2).has('Content-Type')).toBe(false);
+    expect(cabecalhos(3).get('Content-Type')).toBe('text/plain');
+  });
 });
