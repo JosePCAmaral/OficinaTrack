@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { TenantViolacaoError } from '../common/tenant/tenant-context.js';
 import { aplicarTenant } from './extensao-tenant.js';
 import { MODELOS_COM_TENANT } from './modelos-tenant.js';
+import { CRIACAO_ANINHADA_PERMITIDA, RELACOES_TENANT } from './relacoes-tenant.js';
 
 describe('aplicarTenant', () => {
   it('acrescenta o filtro de oficina sem apagar o where original', () => {
@@ -54,5 +55,165 @@ describe('lista de models com tenant', () => {
       .filter(([, , corpo]) => /^\s*oficinaId\s+String/m.test(corpo ?? ''))
       .map(([, nome]) => nome);
     expect(new Set(comOficinaId)).toEqual(MODELOS_COM_TENANT);
+  });
+});
+
+describe('escrita por relação (achado #1 da auditoria)', () => {
+  const OPERADORES_PROIBIDOS = [
+    'connect',
+    'connectOrCreate',
+    'set',
+    'disconnect',
+    'update',
+    'updateMany',
+    'upsert',
+    'delete',
+    'deleteMany',
+  ];
+
+  it.each(OPERADORES_PROIBIDOS)('update com %s aninhado é recusado', (op) => {
+    expect(() =>
+      aplicarTenant('Cliente', 'oficinaId', 'update', { where: { id: 'c1' }, data: { veiculos: { [op]: { id: 'v-b' } } } }, 'of-a'),
+    ).toThrow(TenantViolacaoError);
+  });
+
+  it.each(OPERADORES_PROIBIDOS)('%s aninhado também é recusado a partir da Oficina', (op) => {
+    expect(() =>
+      aplicarTenant('Oficina', 'id', 'update', { where: { id: 'of-a' }, data: { clientes: { [op]: { id: 'c-b' } } } }, 'of-a'),
+    ).toThrow(TenantViolacaoError);
+  });
+
+  it.each(['connect', 'connectOrCreate', 'create'])('create com %s em relação "para cima" (pai) é recusado', (op) => {
+    expect(() =>
+      aplicarTenant('Veiculo', 'oficinaId', 'create', { data: { placa: 'ABC1234', cliente: { [op]: { id: 'c-b' } } } }, 'of-a'),
+    ).toThrow(TenantViolacaoError);
+  });
+
+  it.each([
+    ['create', { data: { telefone: 'x', oficina: { connect: { id: 'of-b' } } } }],
+    ['createMany', { data: [{ telefone: 'x', oficina: { connect: { id: 'of-b' } } }] }],
+    ['createManyAndReturn', { data: [{ telefone: 'x', oficina: { connect: { id: 'of-b' } } }] }],
+    ['update', { where: { id: 'c1' }, data: { oficina: { connect: { id: 'of-b' } } } }],
+    ['updateMany', { where: {}, data: { oficina: { connect: { id: 'of-b' } } } }],
+    ['updateManyAndReturn', { where: {}, data: { oficina: { connect: { id: 'of-b' } } } }],
+    ['upsert', { where: { id: 'c1' }, create: { telefone: 'x', oficina: { connect: { id: 'of-b' } } }, update: {} }],
+    ['upsert', { where: { id: 'c1' }, create: { telefone: 'x' }, update: { oficina: { connect: { id: 'of-b' } } } }],
+  ])('a chave oficina é sempre recusada (%s)', (op, args) => {
+    expect(() => aplicarTenant('Cliente', 'oficinaId', op, args, 'of-a')).toThrow(TenantViolacaoError);
+  });
+
+  it('upsert.update com connect é recusado', () => {
+    expect(() =>
+      aplicarTenant(
+        'Veiculo',
+        'oficinaId',
+        'upsert',
+        { where: { id: 'v1' }, create: { placa: 'ABC1234', clienteId: 'c1' }, update: { cliente: { connect: { id: 'c-b' } } } },
+        'of-a',
+      ),
+    ).toThrow(TenantViolacaoError);
+  });
+
+  it('create aninhado em filho com FK composta é permitido e recursivo', () => {
+    const data = {
+      telefone: 'x',
+      veiculos: { create: [{ placa: 'ABC1234', ordensServico: { create: { numero: 1, relatoCliente: 'freio' } } }] },
+    };
+    expect(aplicarTenant('Cliente', 'oficinaId', 'create', { data }, 'of-a').data).toEqual({ ...data, oficinaId: 'of-a' });
+  });
+
+  it('createMany aninhado em filho com FK composta é permitido (também no update)', () => {
+    const args = { where: { id: 'c1' }, data: { veiculos: { createMany: { data: [{ placa: 'ABC1234' }] } } } };
+    expect(() => aplicarTenant('Cliente', 'oficinaId', 'update', args, 'of-a')).not.toThrow();
+  });
+
+  it('dentro do create aninhado valem as mesmas regras', () => {
+    const tentar = (veiculos: unknown) => () =>
+      aplicarTenant('Cliente', 'oficinaId', 'create', { data: { telefone: 'x', veiculos } }, 'of-a');
+    expect(tentar({ create: { placa: 'ABC1234', ordensServico: { connect: { id: 'os-b' } } } })).toThrow(TenantViolacaoError);
+    expect(tentar({ createMany: { data: [{ placa: 'ABC1234', oficina: { connect: { id: 'of-b' } } }] } })).toThrow(
+      TenantViolacaoError,
+    );
+    expect(tentar({ create: { placa: 'ABC1234', oficinaId: 'of-b' } })).toThrow(TenantViolacaoError);
+  });
+
+  it('create aninhado a partir da Oficina é recusado (FK simples para Oficina, não composta)', () => {
+    expect(() =>
+      aplicarTenant('Oficina', 'id', 'update', { where: { id: 'of-a' }, data: { clientes: { create: { telefone: 'x' } } } }, 'of-a'),
+    ).toThrow(TenantViolacaoError);
+  });
+
+  it('relação com valor que não é objeto falha fechada', () => {
+    expect(() => aplicarTenant('Cliente', 'oficinaId', 'update', { where: { id: 'c1' }, data: { veiculos: null } }, 'of-a')).toThrow(
+      TenantViolacaoError,
+    );
+  });
+
+  it('campos Json com formato de relação não são confundidos com relação', () => {
+    const data = { ordemServicoId: 'os1', itens: [{ connect: 'estepe' }], avarias: { connect: { id: 'x' } } };
+    expect(aplicarTenant('ChecklistEntrada', 'oficinaId', 'create', { data }, 'of-a').data).toEqual({ ...data, oficinaId: 'of-a' });
+  });
+
+  it('FKs escalares continuam permitidas', () => {
+    expect(() =>
+      aplicarTenant('OrdemServico', 'oficinaId', 'update', { where: { id: 'os1' }, data: { responsavelId: null, clienteId: 'c1' } }, 'of-a'),
+    ).not.toThrow();
+  });
+});
+
+type CampoSchema = { nome: string; tipo: string; atributos: string };
+
+function lerSchema(): Map<string, CampoSchema[]> {
+  const schema = readFileSync(new URL('../../prisma/schema.prisma', import.meta.url), 'utf8');
+  const modelos = new Map<string, CampoSchema[]>();
+  for (const [, nome = '', corpo = ''] of schema.matchAll(/model (\w+) \{([^}]*)\}/g)) {
+    const campos = corpo
+      .split('\n')
+      .map((l) => l.replace(/\/\/.*$/, '').trim())
+      .filter((l) => l && !l.startsWith('@@'))
+      .map((l) => {
+        const [campo = '', tipo = '', ...resto] = l.split(/\s+/);
+        return { nome: campo, tipo: tipo.replace(/[?[\]]/g, ''), atributos: resto.join(' ') };
+      });
+    modelos.set(nome, campos);
+  }
+  return modelos;
+}
+
+describe('mapa de relações com tenant', () => {
+  const modelos = lerSchema();
+  const nomeRelacao = (atributos: string) => /@relation\("(\w+)"/.exec(atributos)?.[1];
+
+  it('bate com os campos de relação do schema (todos os models)', () => {
+    const esperado: Record<string, Record<string, string>> = {};
+    for (const [modelo, campos] of modelos) {
+      esperado[modelo] = Object.fromEntries(campos.filter((c) => modelos.has(c.tipo)).map((c) => [c.nome, c.tipo]));
+    }
+    expect(RELACOES_TENANT).toEqual(esperado);
+  });
+
+  it('cobre Oficina e todos os models com tenant', () => {
+    expect(new Set(Object.keys(RELACOES_TENANT))).toEqual(new Set(['Oficina', ...MODELOS_COM_TENANT]));
+  });
+
+  it('create aninhado só nas relações cujo filho usa FK composta (oficinaId, xId)', () => {
+    const esperado: Record<string, Set<string>> = {};
+    for (const [modelo, campos] of modelos) {
+      esperado[modelo] = new Set(
+        campos
+          // lado "filho" da relação: sem `fields:` neste model
+          .filter((c) => modelos.has(c.tipo) && !c.atributos.includes('fields:'))
+          .filter((c) => {
+            const nome = nomeRelacao(c.atributos);
+            const ladoDoFilho = (modelos.get(c.tipo) ?? []).find(
+              (f) => f.tipo === modelo && f.atributos.includes('fields:') && nomeRelacao(f.atributos) === nome,
+            );
+            return /fields: \[oficinaId, \w+\]/.test(ladoDoFilho?.atributos ?? '');
+          })
+          .map((c) => c.nome),
+      );
+    }
+    const atual = Object.fromEntries(Object.entries(CRIACAO_ANINHADA_PERMITIDA).map(([m, s]) => [m, new Set(s)]));
+    expect(atual).toEqual(esperado);
   });
 });

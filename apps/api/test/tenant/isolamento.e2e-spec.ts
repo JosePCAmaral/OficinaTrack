@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module.js';
 import { TenantAusenteError, TenantContext, TenantViolacaoError } from '../../src/common/tenant/tenant-context.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
-import { criarCliente, criarOficina } from '../fabricas.js';
+import { criarCliente, criarOficina, criarUsuario, criarVeiculo } from '../fabricas.js';
 
 describe('Isolamento entre oficinas (extensão do Prisma)', () => {
   let modulo: TestingModule;
@@ -91,10 +91,79 @@ describe('Isolamento entre oficinas (extensão do Prisma)', () => {
     expect(visiveis.map((o) => o.id)).toEqual([oficinaA]);
   });
 
-  it('include de relação traz só dados da mesma oficina', async () => {
-    await comoA(() => prisma.db.veiculo.create({ data: { oficinaId: oficinaA, clienteId: clienteA.id, placa: 'ABC1234' } }));
-    const [cliente] = await comoA(() => prisma.db.cliente.findMany({ include: { veiculos: true } }));
-    expect(cliente?.veiculos.every((v) => v.oficinaId === oficinaA)).toBe(true);
+  describe('escrita por relação entre oficinas (probes da revisão final)', () => {
+    let clienteB: { id: string };
+    let veiculoA: { id: string };
+    let veiculoB: { id: string };
+
+    // sem tenant: leitura "da verdade" para as asserções, sem o filtro da extensão
+    const verdade = () =>
+      tenant.executarSemTenant(async () => ({
+        clientes: await prisma.db.cliente.findMany({ where: { id: { in: [clienteA.id, clienteB.id] } }, orderBy: { id: 'asc' } }),
+        veiculos: await prisma.db.veiculo.findMany({ where: { id: { in: [veiculoA.id, veiculoB.id] } }, orderBy: { id: 'asc' } }),
+      }));
+
+    beforeEach(async () => {
+      clienteB = await criarCliente(prisma, tenant, oficinaB, 'Cliente da B');
+      veiculoA = await criarVeiculo(prisma, tenant, oficinaA, clienteA.id);
+      veiculoB = await criarVeiculo(prisma, tenant, oficinaB, clienteB.id);
+    });
+
+    const tentativas: Array<[string, () => Promise<unknown>]> = [
+      [
+        'r0: cliente.update com oficina: { connect: B }',
+        () => comoA(() => prisma.db.cliente.update({ where: { id: clienteA.id }, data: { oficina: { connect: { id: oficinaB } } } })),
+      ],
+      [
+        'r1: veiculo.update com cliente: { connect: clienteB }',
+        () => comoA(() => prisma.db.veiculo.update({ where: { id: veiculoA.id }, data: { cliente: { connect: { id: clienteB.id } } } })),
+      ],
+      [
+        'r3: oficina.update com clientes: { connect: clienteB }',
+        () => comoA(() => prisma.db.oficina.update({ where: { id: oficinaA }, data: { clientes: { connect: { id: clienteB.id } } } })),
+      ],
+      [
+        'upsert.update com cliente: { connect: clienteB }',
+        () =>
+          comoA(() =>
+            prisma.db.veiculo.upsert({
+              where: { id: veiculoA.id },
+              create: { oficinaId: oficinaA, clienteId: clienteA.id, placa: 'ZZZ9999' },
+              update: { cliente: { connect: { id: clienteB.id } } },
+            }),
+          ),
+      ],
+      [
+        'cliente.update com veiculos: { connect: veiculoB }',
+        () => comoA(() => prisma.db.cliente.update({ where: { id: clienteA.id }, data: { veiculos: { connect: { id: veiculoB.id } } } })),
+      ],
+    ];
+
+    it.each(tentativas)('%s lança TenantViolacaoError e não altera nenhuma das oficinas', async (_nome, tentar) => {
+      const antes = await verdade();
+      await expect(tentar()).rejects.toThrow(TenantViolacaoError);
+      const depois = await verdade();
+      expect(depois).toEqual(antes);
+      const donos = (lista: Array<{ id: string; oficinaId: string }>) => Object.fromEntries(lista.map((r) => [r.id, r.oficinaId]));
+      expect(donos(depois.clientes)).toEqual({ [clienteA.id]: oficinaA, [clienteB.id]: oficinaB });
+      expect(donos(depois.veiculos)).toEqual({ [veiculoA.id]: oficinaA, [veiculoB.id]: oficinaB });
+    });
+
+    it('include de responsavel nunca traz usuário de outra oficina', async () => {
+      const usuarioB = await criarUsuario(prisma, tenant, oficinaB);
+      const usuarioA = await criarUsuario(prisma, tenant, oficinaA);
+      const os = await comoA(() =>
+        prisma.db.ordemServico.create({
+          data: { oficinaId: oficinaA, numero: 1, veiculoId: veiculoA.id, clienteId: clienteA.id, relatoCliente: 'freio', responsavelId: usuarioA.id },
+        }),
+      );
+      await expect(comoA(() => prisma.db.ordemServico.update({ where: { id: os.id }, data: { responsavelId: usuarioB.id } }))).rejects.toMatchObject({
+        code: 'P2003',
+      });
+      const lida = await comoA(() => prisma.db.ordemServico.findUnique({ where: { id: os.id }, include: { responsavel: true } }));
+      expect(lida?.responsavel?.id).toBe(usuarioA.id);
+      expect(lida?.responsavel?.oficinaId).toBe(oficinaA);
+    });
   });
 
   it('executarSemTenant enxerga as duas oficinas (uso restrito)', async () => {

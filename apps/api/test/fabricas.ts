@@ -17,3 +17,28 @@ export function criarCliente(prisma: PrismaService, tenant: TenantContext, ofici
     prisma.db.cliente.create({ data: { oficinaId, nome, telefone: telefoneUnico() } }),
   );
 }
+
+const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const placaUnica = () =>
+  Array.from({ length: 3 }, () => LETRAS[Math.floor(Math.random() * 26)]).join('') +
+  String(Math.floor(Math.random() * 1e4)).padStart(4, '0');
+
+export function criarVeiculo(prisma: PrismaService, tenant: TenantContext, oficinaId: string, clienteId: string) {
+  return tenant.executarComo(oficinaId, () =>
+    prisma.db.veiculo.create({ data: { oficinaId, clienteId, placa: placaUnica() } }),
+  );
+}
+
+export function criarUsuario(prisma: PrismaService, tenant: TenantContext, oficinaId: string, nome = 'Usuário Teste') {
+  return tenant.executarComo(oficinaId, () =>
+    prisma.db.usuario.create({
+      data: {
+        oficinaId,
+        nome,
+        email: `u-${Math.random().toString(36).slice(2)}@teste.local`,
+        senhaHash: 'hash-de-teste-nao-e-senha',
+        perfil: 'FUNCIONARIO',
+      },
+    }),
+  );
+}
