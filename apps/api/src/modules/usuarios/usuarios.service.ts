@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PerfilUsuario } from '@oficinatrack/shared';
+import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { PrismaService, type Db, type Tx } from '../../prisma/prisma.service.js';
+import { USUARIO_DESATIVADO, type UsuarioDesativado } from './eventos.js';
 
 export const CAMPOS_PUBLICOS = {
   id: true, oficinaId: true, nome: true, email: true, telefone: true, perfil: true, ativo: true, emailConfirmadoEm: true, criadoEm: true,
@@ -8,7 +11,10 @@ export const CAMPOS_PUBLICOS = {
 
 @Injectable()
 export class UsuariosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventos: EventEmitter2,
+  ) {}
 
   /** Chamar dentro de `executarSemTenant`: e-mail e telefone são únicos no sistema. Único método que devolve `senhaHash`. */
   buscarParaLogin(chave: string) {
@@ -47,5 +53,25 @@ export class UsuariosService {
 
   buscarSenhaHash(id: string) {
     return this.prisma.db.usuario.findUnique({ where: { id }, select: { senhaHash: true } });
+  }
+
+  listar() {
+    return this.prisma.db.usuario.findMany({ orderBy: { nome: 'asc' }, select: CAMPOS_PUBLICOS });
+  }
+
+  /** Na requisição autenticada. Regras: não altera a si mesmo; sempre sobra um DONO ativo. */
+  async alterar(id: string, dados: { perfil?: PerfilUsuario; ativo?: boolean }, ator: { id: string; oficinaId: string }) {
+    if (id === ator.id) throw new ErroNegocio(422, 'ACAO_NAO_PERMITIDA_EM_SI_MESMO', 'Você não pode alterar o próprio perfil ou se desativar');
+    const alvo = await this.prisma.db.usuario.findUniqueOrThrow({ where: { id }, select: CAMPOS_PUBLICOS });
+    const deixaDeSerDonoAtivo = alvo.perfil === 'DONO' && alvo.ativo && (dados.perfil === 'FUNCIONARIO' || dados.ativo === false);
+    if (deixaDeSerDonoAtivo) {
+      const outros = await this.prisma.db.usuario.count({ where: { perfil: 'DONO', ativo: true, id: { not: id } } });
+      if (outros === 0) throw new ErroNegocio(422, 'ULTIMO_DONO', 'A oficina precisa de pelo menos um dono ativo');
+    }
+    const atualizado = await this.prisma.db.usuario.update({ where: { id }, data: dados, select: CAMPOS_PUBLICOS });
+    if (alvo.ativo && dados.ativo === false) {
+      await this.eventos.emitAsync(USUARIO_DESATIVADO, { oficinaId: ator.oficinaId, usuarioId: id } satisfies UsuarioDesativado);
+    }
+    return atualizado;
   }
 }
