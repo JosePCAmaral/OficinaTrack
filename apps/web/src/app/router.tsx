@@ -8,7 +8,11 @@ import { EsqueciSenha } from '@/features/auth/pages/esqueci-senha';
 import { RedefinirSenha } from '@/features/auth/pages/redefinir-senha';
 import { VerifiqueSeuEmail } from '@/features/auth/pages/verifique-seu-email';
 import { useAuth } from '@/features/auth/contexto/use-auth';
-import { Painel } from '@/pages/painel';
+import { MinhaConta } from '@/features/conta/pages/minha-conta';
+import { Equipe } from '@/features/equipe/pages/equipe';
+import { Oficina } from '@/features/oficina/pages/oficina';
+import { LayoutPainel } from '@/features/painel/layout-painel';
+import { InicioPainel } from '@/features/painel/pages/inicio-painel';
 
 function Raiz() {
   const { estado } = useAuth();
@@ -35,8 +39,28 @@ export const router = createBrowserRouter([
     path: '/painel',
     element: (
       <RotaProtegida>
-        <Painel />
+        <LayoutPainel />
       </RotaProtegida>
     ),
+    children: [
+      { index: true, element: <InicioPainel /> },
+      {
+        path: 'equipe',
+        element: (
+          <RotaProtegida permissao="EQUIPE_GERENCIAR">
+            <Equipe />
+          </RotaProtegida>
+        ),
+      },
+      {
+        path: 'oficina',
+        element: (
+          <RotaProtegida permissao="OFICINA_EDITAR">
+            <Oficina />
+          </RotaProtegida>
+        ),
+      },
+      { path: 'conta', element: <MinhaConta /> },
+    ],
   },
 ]);
