@@ -88,8 +88,8 @@ export function CartaoMembro({ membro, souEu }: { membro: MembroEquipe; souEu: b
             <AlertDialogDescription>{membro.nome} perde o acesso na hora.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void alternarAtivo(false)}>Desativar</AlertDialogAction>
+            <AlertDialogCancel className="h-11">Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="h-11" onClick={() => void alternarAtivo(false)}>Desativar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

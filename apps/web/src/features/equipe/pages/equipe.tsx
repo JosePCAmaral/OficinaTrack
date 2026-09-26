@@ -44,7 +44,7 @@ export function Equipe() {
           <Alert variant="destructive">
             <AlertDescription className="flex w-full items-center justify-between gap-3">
               Não foi possível carregar a equipe.
-              <Button type="button" variant="outline" className="h-9" onClick={() => void equipe.refetch()}>
+              <Button type="button" variant="outline" className="h-11" onClick={() => void equipe.refetch()}>
                 Tentar de novo
               </Button>
             </AlertDescription>
@@ -71,7 +71,7 @@ export function Equipe() {
           <Alert variant="destructive">
             <AlertDescription className="flex w-full items-center justify-between gap-3">
               Não foi possível carregar os convites.
-              <Button type="button" variant="outline" className="h-9" onClick={() => void convites.refetch()}>
+              <Button type="button" variant="outline" className="h-11" onClick={() => void convites.refetch()}>
                 Tentar de novo
               </Button>
             </AlertDescription>

@@ -65,7 +65,7 @@ export function Oficina() {
       <Alert variant="destructive">
         <AlertDescription className="flex w-full items-center justify-between gap-3">
           Não foi possível carregar os dados da oficina.
-          <Button type="button" variant="outline" className="h-9" onClick={() => void oficina.refetch()}>
+          <Button type="button" variant="outline" className="h-11" onClick={() => void oficina.refetch()}>
             Tentar de novo
           </Button>
         </AlertDescription>

@@ -39,6 +39,18 @@ function mockFetch(dadosSalvos: DadosOficina) {
 describe('Oficina', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('"Tentar de novo" tem 44px de altura (h-11)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(
+        async () => new Response(JSON.stringify({ statusCode: 500, code: 'ERRO_INTERNO', message: 'Erro interno' }), { status: 500 }),
+      ),
+    );
+    renderizar(<Oficina />, { auth: { estado: 'autenticado', usuario: dono, tem: () => true } });
+
+    expect(await screen.findByRole('button', { name: 'Tentar de novo' })).toHaveClass('h-11');
+  });
+
   it('salva os dados e recarrega a sessão para atualizar a barra', async () => {
     const dadosSalvos: DadosOficina = { ...dadosAtuais, nome: 'Oficina do Zé Ltda' };
     vi.stubGlobal('fetch', mockFetch(dadosSalvos));

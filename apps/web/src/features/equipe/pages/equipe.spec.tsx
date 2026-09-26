@@ -33,14 +33,35 @@ const membroDono: MembroEquipe = {
   criadoEm: '2026-01-01T00:00:00.000Z',
 };
 
-function mockFetch(handlers: { onPost?: (body: unknown) => Response }) {
+const pendente: ConvitePendente = {
+  id: 'c-pendente',
+  nome: 'Convidado Antigo',
+  email: 'antigo@oficina.com',
+  telefone: null,
+  perfil: 'FUNCIONARIO',
+  expiraEm: '2026-01-04T00:00:00.000Z',
+  criadoEm: '2026-01-01T00:00:00.000Z',
+};
+
+function mockFetch(handlers: {
+  onPost?: (body: unknown) => Response;
+  onReenviar?: () => Response;
+  convites?: ConvitePendente[];
+  falharListas?: boolean;
+}) {
   return vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(async (url, init) => {
     const metodo = init?.method ?? 'GET';
+    if (handlers.falharListas && metodo === 'GET') {
+      return new Response(JSON.stringify({ statusCode: 500, code: 'ERRO_INTERNO', message: 'Erro interno' }), { status: 500 });
+    }
     if (url.endsWith('/usuarios') && metodo === 'GET') {
       return new Response(JSON.stringify([membroDono, colega]), { status: 200 });
     }
     if (url.endsWith('/convites') && metodo === 'GET') {
-      return new Response(JSON.stringify([] satisfies ConvitePendente[]), { status: 200 });
+      return new Response(JSON.stringify(handlers.convites ?? ([] satisfies ConvitePendente[])), { status: 200 });
+    }
+    if (url.endsWith('/reenviar') && metodo === 'POST' && handlers.onReenviar) {
+      return handlers.onReenviar();
     }
     if (url.endsWith('/convites') && metodo === 'POST' && handlers.onPost) {
       return handlers.onPost(init?.body ? JSON.parse(init.body as string) : undefined);
@@ -98,6 +119,45 @@ describe('Equipe', () => {
     await usuario.click(screen.getByRole('button', { name: 'Enviar convite' }));
 
     expect(await screen.findByText('Esse e-mail já está cadastrado')).toBeInTheDocument();
+  });
+
+  it('reenviar além do limite (429) mostra a mensagem da API e desliga o botão', async () => {
+    const mensagem = 'Limite de reenvios deste convite atingido. Cancele e convide de novo';
+    const fetchMock = mockFetch({
+      convites: [pendente],
+      onReenviar: () => new Response(JSON.stringify({ statusCode: 429, code: 'MUITAS_TENTATIVAS', message: mensagem }), { status: 429 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const usuario = userEvent.setup();
+    renderizar(<Equipe />, { auth: { estado: 'autenticado', usuario: dono, tem: () => true } });
+
+    await usuario.click(await screen.findByRole('button', { name: 'Reenviar' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(mensagem);
+    expect(screen.getByRole('button', { name: 'Reenviar' })).toBeDisabled();
+  });
+
+  it('botões de "Tentar de novo" têm 44px de altura (h-11)', async () => {
+    vi.stubGlobal('fetch', mockFetch({ falharListas: true }));
+    renderizar(<Equipe />, { auth: { estado: 'autenticado', usuario: dono, tem: () => true } });
+
+    await screen.findByText('Não foi possível carregar os convites.');
+    const botoes = await screen.findAllByRole('button', { name: 'Tentar de novo' });
+    expect(botoes).toHaveLength(2);
+    for (const botao of botoes) expect(botao).toHaveClass('h-11');
+  });
+
+  it('diálogo de desativar tem Cancelar e Desativar com 44px de altura (h-11)', async () => {
+    vi.stubGlobal('fetch', mockFetch({}));
+    const usuario = userEvent.setup();
+    renderizar(<Equipe />, { auth: { estado: 'autenticado', usuario: dono, tem: () => true } });
+
+    await usuario.click(await screen.findByRole('button', { name: `Ações de ${colega.nome}` }));
+    await usuario.click(await screen.findByRole('menuitem', { name: 'Desativar' }));
+
+    const dialogo = await screen.findByRole('alertdialog');
+    expect(within(dialogo).getByRole('button', { name: 'Cancelar' })).toHaveClass('h-11');
+    expect(within(dialogo).getByRole('button', { name: 'Desativar' })).toHaveClass('h-11');
   });
 
   it('ações não aparecem no próprio usuário', async () => {

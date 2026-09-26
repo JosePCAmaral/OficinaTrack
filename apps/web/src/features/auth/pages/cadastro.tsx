@@ -47,6 +47,10 @@ export function CadastroPage() {
           setError('codigoPiloto', { message: erro.message });
           return;
         }
+        if (erro.code === 'TELEFONE_JA_CADASTRADO') {
+          setError('dono.telefone', { message: erro.message });
+          return;
+        }
         if (erro.code === 'EMAIL_JA_CADASTRADO') {
           setError('dono.email', { message: erro.message });
           setErroGeral({ mensagem: erro.message, mostrarLinkEntrar: true });
@@ -169,6 +173,14 @@ export function CadastroPage() {
             error={errors.dono?.email?.message}
             registro={register('dono.email')}
             autoComplete="email"
+          />
+          <CampoFormulario
+            id="dono-telefone"
+            label="Seu WhatsApp (opcional)"
+            type="tel"
+            error={errors.dono?.telefone?.message}
+            registro={register('dono.telefone')}
+            autoComplete="tel"
           />
           <CampoFormulario
             id="dono-senha"

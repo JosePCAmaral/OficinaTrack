@@ -11,11 +11,17 @@ function ItemConvite({ convite, nomeOficina }: { convite: ConvitePendente; nomeO
   const reenviar = useReenviarConvite();
   const cancelar = useCancelarConvite();
   const [linkAtual, setLinkAtual] = useState<ConviteCriado | null>(null);
+  // limite de reenvios atingido (429): a mensagem da API fica visível e diz o que fazer (cancelar e convidar de novo)
+  const [limiteReenvio, setLimiteReenvio] = useState<string | null>(null);
 
   async function aoReenviar() {
     try {
       setLinkAtual(await reenviar.mutateAsync(convite.id));
     } catch (erro) {
+      if (erro instanceof ErroApi && erro.statusCode === 429) {
+        setLimiteReenvio(erro.message);
+        return;
+      }
       toast.error(erro instanceof ErroApi ? erro.message : 'Não foi possível completar a ação. Tente de novo.');
     }
   }
@@ -38,7 +44,13 @@ function ItemConvite({ convite, nomeOficina }: { convite: ConvitePendente; nomeO
         <p className="shrink-0 text-right text-xs text-muted-foreground">Expira em {formatarDataHora(convite.expiraEm)}</p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" className="h-11" onClick={() => void aoReenviar()} disabled={reenviar.isPending}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11"
+          onClick={() => void aoReenviar()}
+          disabled={reenviar.isPending || limiteReenvio !== null}
+        >
           {reenviar.isPending ? 'Reenviando…' : 'Reenviar'}
         </Button>
         <Button
@@ -51,6 +63,11 @@ function ItemConvite({ convite, nomeOficina }: { convite: ConvitePendente; nomeO
           Cancelar
         </Button>
       </div>
+      {limiteReenvio && (
+        <p role="alert" className="text-sm text-destructive">
+          {limiteReenvio}
+        </p>
+      )}
       {linkAtual && <LinkConvite convite={linkAtual} nomeOficina={nomeOficina} />}
     </li>
   );
