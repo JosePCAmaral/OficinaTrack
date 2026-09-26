@@ -144,6 +144,8 @@ model Usuario {
   senhaHash         String
   perfil            PerfilUsuario
   ativo             Boolean       @default(true)
+  /// Access tokens emitidos antes deste instante são recusados (redefinir/trocar senha, desativar).
+  sessaoValidaDesde DateTime?
   criadoEm          DateTime      @default(now())
   atualizadoEm      DateTime      @updatedAt
 
@@ -184,6 +186,7 @@ model Convite {
   tokenHash   String        @unique
   expiraEm    DateTime
   usadoEm     DateTime?
+  reenvios    Int           @default(0) // máximo 3 por convite (anti-spam)
   criadoPorId String
   criadoPor   Usuario       @relation(fields: [oficinaId, criadoPorId], references: [oficinaId, id], onUpdate: Restrict)
   criadoEm    DateTime      @default(now())
@@ -425,6 +428,12 @@ model CodigoPiloto {
 - **`CodigoPiloto`** (nova tabela, **global**, sem `oficinaId` obrigatório): `id`, `codigoHash` único, `descricao`, `expiraEm`, `usadoEm`, `oficinaId String? @unique` (marca qual oficina já usou o código, não filtra por tenant), FK simples opcional `oficinaId → Oficina` (`ON DELETE SET NULL`, `ON UPDATE RESTRICT` — o código continua existindo, só solto, se a oficina for removida), `criadoEm`. Fora de `MODELOS_COM_TENANT`, dentro de `MODELOS_GLOBAIS` (`apps/api/src/prisma/modelos-tenant.ts`); a extensão de tenant não intercepta suas operações (`campoTenant('CodigoPiloto', ...)` devolve `null`, de propósito), então todo acesso de produção deve ficar dentro de `tenant.executarSemTenant(...)` comentado, como qualquer leitura sem oficina no contexto.
 - **`MODELOS_GLOBAIS`** (novo conjunto, `apps/api/src/prisma/modelos-tenant.ts`): lista explícita dos models sem tenant (hoje só `CodigoPiloto`). Sem essa lista, `campoTenant` teria que tratar "não está em `MODELOS_COM_TENANT`" como "é global", e esquecer de registrar um model novo (com `oficinaId` opcional, ou relacionado a um model com tenant) faria a extensão devolver dados de todas as oficinas silenciosamente — falha aberta. Com a lista, `campoTenant` só devolve `null` (sem filtro) para um model que está *de propósito* em `MODELOS_GLOBAIS`; qualquer outro model fora dos três conjuntos (`Oficina`, `MODELOS_COM_TENANT`, `MODELOS_GLOBAIS`) lança `TenantModeloDesconhecidoError` — falha fechada. Um teste de partição em `apps/api/src/prisma/extensao-tenant.spec.ts` ("partição: todo model do schema é Oficina, MODELOS_COM_TENANT ou MODELOS_GLOBAIS") garante que os três conjuntos cobrem exatamente todo `model` de `schema.prisma`, sem sobra nem sobreposição, e que nenhum model de `MODELOS_GLOBAIS` tem `oficinaId` obrigatório.
 - **Ajuste nos testes de sincronia** (`apps/api/src/prisma/extensao-tenant.spec.ts`): os dois testes que comparam `RELACOES_TENANT`/`CRIACAO_ANINHADA_PERMITIDA` com o schema iteram só sobre `{Oficina, ...MODELOS_COM_TENANT}` (não sobre todo `model` do arquivo) — `CodigoPiloto`, sendo global, não tem entrada própria nesses mapas (só aparece como TIPO do campo `Oficina.codigoPiloto`, que continua reconhecido normalmente). O teste "lista de models com tenant" exige `oficinaId String` sem `?` (`(?!\?)`), já que existe um model global com `oficinaId String?` opcional (`CodigoPiloto`) que não é, ele mesmo, um model com tenant. O teste de partição acima (`MODELOS_GLOBAIS`) é o que garante que nada fica de fora dos mapas sem ser notado.
+
+## Migração `sessao_valida_desde` (correções da auditoria de 2026-09-26)
+
+- **`Usuario.sessaoValidaDesde DateTime?`** (nova coluna, nula): corte de sessão. O guard recusa todo access token emitido antes desse instante (claim `emitidoEmMs`, com fallback para o `iat` em segundos). Gravado ao redefinir a senha, ao trocar a senha e ao desativar o usuário. Nula = nenhum corte. Não sai em nenhuma resposta da API (só o guard lê, via `UsuariosService.buscarAtivo`).
+- **`Convite.reenvios Int @default(0)`** (nova coluna): quantas vezes o convite foi reenviado. `POST /convites/:id/reenviar` incrementa no mesmo `updateMany` que confere `reenvios < 3`; acima disso, `429 MUITAS_TENTATIVAS`. Convites existentes começam em 0.
+- Só `ADD COLUMN` (sem reescrever dados nem mexer em FKs/triggers); gerada com `prisma migrate diff`.
 
 ## Desvios do rascunho original (Tarefa 4, Sprint 1)
 
