@@ -8,8 +8,21 @@ import { TenantContext } from '../../common/tenant/tenant-context.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import { CHAVE_PUBLICO, type RequisicaoAutenticada } from './decorators.js';
 
-export type PayloadAcesso = { sub: string; oficinaId: string; perfil: PerfilUsuario; fam: string };
+/** `emitidoEmMs`: instante da emissão em ms (o `iat` padrão só tem segundos). `iat` é preenchido pelo `JwtService`. */
+export type PayloadAcesso = { sub: string; oficinaId: string; perfil: PerfilUsuario; fam: string; emitidoEmMs?: number; iat?: number };
 export const naoAutenticado = () => new ErroNegocio(401, 'NAO_AUTENTICADO', 'Faça login para continuar');
+
+/**
+ * O token foi emitido antes do corte `sessaoValidaDesde` (senha redefinida/trocada, usuário desativado)?
+ * Com `emitidoEmMs` a comparação é em ms: um token emitido logo depois do corte, no mesmo segundo
+ * (ex.: o refresh do aparelho que trocou a senha), continua valendo. Sem ele, cai para o `iat` em
+ * segundos e nunca recusa um token do mesmo segundo do corte.
+ */
+export function emitidoAntesDoCorte(payload: Pick<PayloadAcesso, 'emitidoEmMs' | 'iat'>, corte: Date | null): boolean {
+  if (!corte) return false;
+  if (typeof payload.emitidoEmMs === 'number') return payload.emitidoEmMs < corte.getTime();
+  return (payload.iat ?? 0) < Math.floor(corte.getTime() / 1000);
+}
 
 @Injectable()
 export class AutenticacaoGuard implements CanActivate {
@@ -37,6 +50,7 @@ export class AutenticacaoGuard implements CanActivate {
     // perfil e "ativo" vêm do banco a cada requisição: desativar ou trocar perfil vale na hora
     const usuario = await this.usuarios.buscarAtivo(payload.sub);
     if (!usuario || !usuario.emailConfirmadoEm) throw naoAutenticado();
+    if (emitidoAntesDoCorte(payload, usuario.sessaoValidaDesde)) throw naoAutenticado();
     req.usuario = { id: usuario.id, oficinaId: usuario.oficinaId, perfil: usuario.perfil, nome: usuario.nome, email: usuario.email, familiaId: payload.fam };
     return true;
   }

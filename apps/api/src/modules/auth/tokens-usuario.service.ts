@@ -2,13 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { tokenInvalido } from '../../common/erros/erros-auth.js';
 import { gerarToken, hashToken } from '../../common/seguranca/tokens.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
-import type { TipoTokenUsuario } from '../../generated/prisma/client.js';
+import { Prisma, type TipoTokenUsuario } from '../../generated/prisma/client.js';
+import { ehConflitoDeTransacao } from '../../prisma/conflito-transacao.js';
 import { PrismaService, type Db, type Tx } from '../../prisma/prisma.service.js';
 
 const VALIDADE_MS: Record<TipoTokenUsuario, number> = {
   CONFIRMAR_EMAIL: 24 * 60 * 60 * 1000,
   REDEFINIR_SENHA: 60 * 60 * 1000,
 };
+
+/** Limite por destinatário (independe do IP): no máximo 3 links do mesmo tipo por hora (auditoria #3). */
+export const MAX_LINKS_POR_HORA = 3;
+const JANELA_LINKS_MS = 60 * 60 * 1000;
+const TENTATIVAS_CONFLITO = 5;
 
 @Injectable()
 export class TokensUsuarioService {
@@ -25,6 +31,33 @@ export class TokensUsuarioService {
       data: { oficinaId: usuario.oficinaId, usuarioId: usuario.id, tipo, tokenHash: hash, expiraEm: new Date(Date.now() + VALIDADE_MS[tipo]) },
     });
     return token;
+  }
+
+  /**
+   * Como `criar`, mas devolve `null` (sem criar nada) se o usuário já recebeu `MAX_LINKS_POR_HORA`
+   * links deste tipo na última hora. Contagem e criação numa transação serializável: pedidos
+   * simultâneos não furam o limite. Num conflito de serialização, tenta de novo (a cada rodada
+   * pelo menos uma transação concorrente grava, então a recontagem vê o que ela gravou).
+   * Chamar dentro do contexto da oficina do usuário.
+   */
+  async criarDentroDoLimite(usuario: { id: string; oficinaId: string }, tipo: TipoTokenUsuario): Promise<string | null> {
+    for (let tentativa = 1; ; tentativa++) {
+      try {
+        return await this.prisma.db.$transaction(
+          async (tx) => {
+            const recentes = await tx.tokenUsuario.count({
+              where: { usuarioId: usuario.id, tipo, criadoEm: { gt: new Date(Date.now() - JANELA_LINKS_MS) } },
+            });
+            return recentes >= MAX_LINKS_POR_HORA ? null : this.criar(tx, usuario, tipo);
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (erro) {
+        // esgotadas as tentativas, fica sem link: nunca fura o limite
+        if (!ehConflitoDeTransacao(erro)) throw erro;
+        if (tentativa >= TENTATIVAS_CONFLITO) return null;
+      }
+    }
   }
 
   /** Mesmo erro para inexistente, expirado, usado ou de outro tipo. */

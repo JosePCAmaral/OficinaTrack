@@ -38,6 +38,13 @@ describe('cadastroSchema', () => {
     expect(r.dono.email).toBe('ze@oficina.com');
     expect(r.oficina.telefone).toBe('+5543999998888');
   });
+  it('WhatsApp do dono é opcional e sai em E.164; vazio vira undefined; inválido é recusado', () => {
+    expect(cadastroSchema.parse(cadastroValido).dono.telefone).toBeUndefined();
+    const com = (telefone: string) => cadastroSchema.safeParse({ ...cadastroValido, dono: { ...cadastroValido.dono, telefone } });
+    expect(com('(43) 98888-7777').data?.dono.telefone).toBe('+5543988887777');
+    expect(com('').data?.dono.telefone).toBeUndefined();
+    expect(com('123').success).toBe(false);
+  });
   it('exige aceite dos termos', () => {
     expect(cadastroSchema.safeParse({ ...cadastroValido, aceiteTermos: false }).success).toBe(false);
   });

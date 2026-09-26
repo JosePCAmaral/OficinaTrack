@@ -5,7 +5,8 @@ import { criarApp, criarOficinaComUsuario, criarUsuarioNa, entrar, ORIGEM, sufix
 
 /**
  * Auditoria Sprint 2 (docs/auditorias/2026-09-26-sprint-2.md): T1/T3/T4/T6 nas contas, equipe e convites.
- * Testes marcados "FALHA HOJE" provam um achado do relatório; os demais são regressão de controles corretos.
+ * Testes "[achado #N, corrigido]" provaram um achado do relatório (falhavam antes da correção) e agora
+ * a garantem; os demais são regressão de controles corretos.
  * Cada teste cria as próprias oficinas (o banco de teste não é zerado).
  */
 const tokenDoLink = (texto: string) => /#([A-Za-z0-9_-]{43})/.exec(texto)?.[1];
@@ -18,9 +19,9 @@ describe('T3/T4: contas, equipe e convites (auditoria Sprint 2)', () => {
   });
   afterAll(() => ctx.app.close());
 
-  // ---------------------------------------------------------------- achados (falham hoje)
+  // ---------------------------------------------------------------- achados (corrigidos)
 
-  it('[achado #1, FALHA HOJE] convite criado por um DONO que depois foi desativado não pode mais ser aceito', async () => {
+  it('[achado #1, corrigido] convite criado por um DONO que depois foi desativado não pode mais ser aceito', async () => {
     const { oficina, usuario: dono1 } = await criarOficinaComUsuario(ctx);
     const dono2 = await criarUsuarioNa(ctx, oficina.id, 'DONO');
     const d1 = await entrar(ctx, dono1.email);
@@ -34,7 +35,7 @@ describe('T3/T4: contas, equipe e convites (auditoria Sprint 2)', () => {
     expect(r.body.code).toBe('TOKEN_INVALIDO');
   });
 
-  it('[achado #1, FALHA HOJE] convite criado por um DONO que depois foi rebaixado a FUNCIONARIO não pode mais ser aceito', async () => {
+  it('[achado #1, corrigido] convite criado por um DONO que depois foi rebaixado a FUNCIONARIO não pode mais ser aceito', async () => {
     const { oficina, usuario: dono1 } = await criarOficinaComUsuario(ctx);
     const dono2 = await criarUsuarioNa(ctx, oficina.id, 'DONO');
     const d1 = await entrar(ctx, dono1.email);
@@ -47,18 +48,19 @@ describe('T3/T4: contas, equipe e convites (auditoria Sprint 2)', () => {
     expect(r.body.code).toBe('TOKEN_INVALIDO');
   });
 
-  it('[achado #6, FALHA HOJE] access token emitido antes de redefinir a senha deixa de valer (recuperação de conta)', async () => {
+  it('[achado #6, corrigido] access token emitido antes de redefinir a senha deixa de valer (recuperação de conta)', async () => {
     const { usuario } = await criarOficinaComUsuario(ctx);
     const invasor = await entrar(ctx, usuario.email); // sessão que o dono quer derrubar ao redefinir a senha
     await ctx.http.post('/api/v1/auth/esqueci-senha').send({ email: usuario.email }).expect(200);
+    await ctx.emails.aguardarPendentes(); // token e e-mail saem depois da resposta (auditoria #11)
     const token = tokenDoLink(ctx.emails.ultimoPara(usuario.email)!.texto)!;
     await ctx.http.post('/api/v1/auth/redefinir-senha').send({ token, senha: 'nova-senha-do-ze' }).expect(200);
 
-    // hoje: 200 por até 15 min — tempo suficiente para criar um convite DONO (achado #1) e manter acesso
+    // antes: 200 por até 15 min, tempo suficiente para criar um convite DONO (achado #1) e manter acesso
     await ctx.http.get('/api/v1/auth/eu').set(auth(invasor.accessToken)).expect(401);
   });
 
-  it('[achado #9, FALHA HOJE] FUNCIONARIO não recebe o CPF/CNPJ da oficina em GET /oficinas/atual (minimização)', async () => {
+  it('[achado #9, corrigido] FUNCIONARIO não recebe o CPF/CNPJ da oficina em GET /oficinas/atual (minimização)', async () => {
     const { oficina, usuario: dono } = await criarOficinaComUsuario(ctx);
     const func = await criarUsuarioNa(ctx, oficina.id, 'FUNCIONARIO');
     const d = await entrar(ctx, dono.email);
@@ -68,7 +70,7 @@ describe('T3/T4: contas, equipe e convites (auditoria Sprint 2)', () => {
     expect(r.body.documento ?? null).toBeNull();
   });
 
-  // ---------------------------------------------------------------- regressão (passam hoje)
+  // ---------------------------------------------------------------- regressão
 
   it('[regressão T1] JWT bem assinado com sub de uma oficina e oficinaId de outra → 401', async () => {
     const a = await criarOficinaComUsuario(ctx);

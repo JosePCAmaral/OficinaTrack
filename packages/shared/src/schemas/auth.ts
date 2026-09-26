@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalizarEmail } from '../email.js';
 import { SENHAS_COMUNS } from '../senhas-comuns.js';
+import { telefoneOpcionalSchema } from './comuns.js';
 import { oficinaDadosSchema } from './oficina.js';
 
 export const VERSAO_TERMOS = '2026-09';
@@ -26,6 +27,8 @@ export const cadastroSchema = z.object({
   dono: z.object({
     nome: z.string().trim().min(2, { error: 'Informe seu nome' }).max(120),
     email: emailSchema,
+    /** WhatsApp do dono (opcional): permite entrar pelo telefone. */
+    telefone: telefoneOpcionalSchema,
     senha: senhaSchema,
   }),
   aceiteTermos: z.literal(true, { error: 'É preciso aceitar os termos de uso' }),

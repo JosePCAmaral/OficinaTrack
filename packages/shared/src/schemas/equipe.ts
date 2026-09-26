@@ -1,9 +1,7 @@
 import { z } from 'zod';
 import { PerfilUsuario } from '../enums.js';
 import { emailSchema, senhaSchema, tokenSchema } from './auth.js';
-import { telefoneSchema } from './comuns.js';
-
-const telefoneOpcional = z.preprocess((v) => (v === '' ? undefined : v), telefoneSchema.optional());
+import { telefoneOpcionalSchema as telefoneOpcional } from './comuns.js';
 
 export const conviteSchema = z.object({
   nome: z.string().trim().min(2, { error: 'Informe o nome' }).max(120),

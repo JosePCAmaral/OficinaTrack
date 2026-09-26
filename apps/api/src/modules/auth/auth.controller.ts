@@ -96,6 +96,8 @@ export class AuthController {
 
   @Patch('senha')
   @HttpCode(204)
+  // quem tem só o access token (XSS, aparelho destravado) não chuta a senha atual à vontade (auditoria #7)
+  @Throttle({ default: { limit: limite(5), ttl: 15 * 60_000 } })
   async trocarSenha(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Body(new ZodValidationPipe(trocarSenhaSchema)) d: { senhaAtual: string; novaSenha: string },

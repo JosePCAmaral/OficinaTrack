@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ConviteCriado, ConvitePendente, PerfilUsuario } from '@oficinatrack/shared';
+import { OnEvent } from '@nestjs/event-emitter';
+import { temPermissao, type ConviteCriado, type ConvitePendente, type PerfilUsuario } from '@oficinatrack/shared';
 import { tokenInvalido } from '../../common/erros/erros-auth.js';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { hashSenha } from '../../common/seguranca/senhas.js';
@@ -11,9 +12,17 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { EnvioEmail } from '../notificacoes/envio-email.js';
 import { modelosEmail } from '../notificacoes/modelos-email.js';
 import { OficinasService } from '../oficinas/oficinas.service.js';
+import {
+  USUARIO_CREDENCIAIS_ALTERADAS,
+  USUARIO_DESATIVADO,
+  type UsuarioCredenciaisAlteradas,
+  type UsuarioDesativado,
+} from './eventos.js';
 import { UsuariosService } from './usuarios.service.js';
 
 const VALIDADE_CONVITE_MS = 72 * 60 * 60 * 1000;
+/** Reenvios por convite: acima disso, cancelar e convidar de novo (anti-spam, auditoria #2). */
+export const MAX_REENVIOS = 3;
 const CAMPOS = { id: true, nome: true, email: true, telefone: true, perfil: true, expiraEm: true, criadoEm: true } as const;
 
 type ConviteRegistro = { id: string; nome: string; email: string; telefone: string | null; perfil: PerfilUsuario; expiraEm: Date; criadoEm: Date };
@@ -72,11 +81,16 @@ export class ConvitesService {
 
   async reenviar(id: string): Promise<ConviteCriado> {
     const { token, hash } = gerarToken();
-    const convite = await this.prisma.db.convite.update({
-      where: { id, usadoEm: null },
-      data: { tokenHash: hash, expiraEm: new Date(Date.now() + VALIDADE_CONVITE_MS) },
-      select: CAMPOS,
+    // atômico: dois reenvios simultâneos não passam do limite
+    const marcado = await this.prisma.db.convite.updateMany({
+      where: { id, usadoEm: null, reenvios: { lt: MAX_REENVIOS } },
+      data: { tokenHash: hash, expiraEm: new Date(Date.now() + VALIDADE_CONVITE_MS), reenvios: { increment: 1 } },
     });
+    if (marcado.count !== 1) {
+      if ((await this.prisma.db.convite.count({ where: { id, usadoEm: null } })) === 0) throw new NotFoundException();
+      throw new ErroNegocio(429, 'MUITAS_TENTATIVAS', 'Limite de reenvios deste convite atingido. Cancele e convide de novo');
+    }
+    const convite = await this.prisma.db.convite.findUniqueOrThrow({ where: { id }, select: CAMPOS });
     return this.enviar(convite, token);
   }
 
@@ -102,7 +116,16 @@ export class ConvitesService {
     }
     return this.tenant.executarComo(convite.oficinaId, () =>
       this.prisma.db.$transaction(async (tx) => {
-        const marcado = await tx.convite.updateMany({ where: { id: convite.id, usadoEm: null }, data: { usadoEm: new Date() } });
+        // quem convidou ainda precisa poder convidar: um DONO desativado ou rebaixado não volta pela porta dos fundos
+        const criador = await tx.usuario.findUnique({ where: { id: convite.criadoPorId }, select: { ativo: true, perfil: true } });
+        if (!criador?.ativo || !temPermissao(criador.perfil, 'EQUIPE_GERENCIAR') || (convite.perfil === 'DONO' && criador.perfil !== 'DONO')) {
+          throw tokenInvalido();
+        }
+        // reconfere hash e validade na marcação: um reenvio ou a expiração entre a leitura e aqui invalidam o link antigo
+        const marcado = await tx.convite.updateMany({
+          where: { id: convite.id, tokenHash: hashToken(token), usadoEm: null, expiraEm: { gt: new Date() } },
+          data: { usadoEm: new Date() },
+        });
         if (marcado.count !== 1) throw tokenInvalido();
         return tx.usuario.create({
           data: {
@@ -118,6 +141,22 @@ export class ConvitesService {
         });
       }),
     );
+  }
+
+  /** Desativado: os convites pendentes que ele criou deixam de valer. */
+  @OnEvent(USUARIO_DESATIVADO, { async: true, promisify: true })
+  async aoDesativarUsuario({ oficinaId, usuarioId }: UsuarioDesativado): Promise<void> {
+    await this.apagarPendentesCriadosPor(oficinaId, usuarioId);
+  }
+
+  /** Rebaixado ou com a senha redefinida (conta possivelmente invadida): idem. */
+  @OnEvent(USUARIO_CREDENCIAIS_ALTERADAS, { async: true, promisify: true })
+  async aoAlterarCredenciais({ oficinaId, usuarioId }: UsuarioCredenciaisAlteradas): Promise<void> {
+    await this.apagarPendentesCriadosPor(oficinaId, usuarioId);
+  }
+
+  private async apagarPendentesCriadosPor(oficinaId: string, usuarioId: string): Promise<void> {
+    await this.tenant.executarComo(oficinaId, () => this.prisma.db.convite.deleteMany({ where: { criadoPorId: usuarioId, usadoEm: null } }));
   }
 
   private async buscarValido(token: string) {

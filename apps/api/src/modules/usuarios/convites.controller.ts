@@ -1,5 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { conviteSchema, type ConviteCriado, type ConvitePendente, type PerfilUsuario } from '@oficinatrack/shared';
+import { limite } from '../../common/seguranca/limites.js';
 import { ZodValidationPipe } from '../../common/validacao/zod-validation.pipe.js';
 import { ExigePermissao, UsuarioAtual, type UsuarioAutenticado } from '../auth/decorators.js';
 import { ConvitesService } from './convites.service.js';
@@ -17,6 +19,8 @@ export class ConvitesController {
 
   @Post()
   @ExigePermissao('EQUIPE_GERENCIAR')
+  // cada convite é um e-mail nosso para um endereço qualquer: sem isto, vira relay de spam (auditoria #2)
+  @Throttle({ default: { limit: limite(20), ttl: 3_600_000 } })
   criar(
     @Body(new ZodValidationPipe(conviteSchema)) dados: { nome: string; email: string; telefone?: string; perfil: PerfilUsuario },
     @UsuarioAtual() ator: UsuarioAutenticado,

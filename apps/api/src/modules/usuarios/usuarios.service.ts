@@ -3,12 +3,16 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PerfilUsuario } from '@oficinatrack/shared';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { Prisma } from '../../generated/prisma/client.js';
+import { ehConflitoDeTransacao } from '../../prisma/conflito-transacao.js';
 import { PrismaService, type Db, type Tx } from '../../prisma/prisma.service.js';
-import { USUARIO_DESATIVADO, type UsuarioDesativado } from './eventos.js';
+import { USUARIO_CREDENCIAIS_ALTERADAS, USUARIO_DESATIVADO, type UsuarioCredenciaisAlteradas, type UsuarioDesativado } from './eventos.js';
 
 export const CAMPOS_PUBLICOS = {
   id: true, oficinaId: true, nome: true, email: true, telefone: true, perfil: true, ativo: true, emailConfirmadoEm: true, criadoEm: true,
 } as const;
+
+/** Para o guard: inclui o corte de sessão (`sessaoValidaDesde`), que não sai em nenhuma resposta. */
+const CAMPOS_SESSAO = { ...CAMPOS_PUBLICOS, sessaoValidaDesde: true } as const;
 
 @Injectable()
 export class UsuariosService {
@@ -23,7 +27,7 @@ export class UsuariosService {
   }
 
   buscarAtivo(id: string) {
-    return this.prisma.db.usuario.findFirst({ where: { id, ativo: true }, select: CAMPOS_PUBLICOS });
+    return this.prisma.db.usuario.findFirst({ where: { id, ativo: true }, select: CAMPOS_SESSAO });
   }
 
   buscarPorId(id: string) {
@@ -40,16 +44,17 @@ export class UsuariosService {
     return (await db.usuario.count({ where: { telefone } })) > 0;
   }
 
-  criarDono(db: Db | Tx, dados: { oficinaId: string; nome: string; email: string; senhaHash: string }) {
-    return db.usuario.create({ data: { ...dados, perfil: 'DONO' as PerfilUsuario }, select: CAMPOS_PUBLICOS });
+  criarDono(db: Db | Tx, dados: { oficinaId: string; nome: string; email: string; telefone?: string; senhaHash: string }) {
+    return db.usuario.create({ data: { ...dados, telefone: dados.telefone ?? null, perfil: 'DONO' as PerfilUsuario }, select: CAMPOS_PUBLICOS });
   }
 
-  marcarEmailConfirmado(id: string) {
-    return this.prisma.db.usuario.updateMany({ where: { id, emailConfirmadoEm: null }, data: { emailConfirmadoEm: new Date() } });
+  marcarEmailConfirmado(id: string, db: Db | Tx = this.prisma.db) {
+    return db.usuario.updateMany({ where: { id, emailConfirmadoEm: null }, data: { emailConfirmadoEm: new Date() } });
   }
 
-  atualizarSenha(id: string, senhaHash: string) {
-    return this.prisma.db.usuario.update({ where: { id }, data: { senhaHash }, select: { id: true } });
+  /** Grava a senha nova e corta os access tokens já emitidos (`sessaoValidaDesde`). */
+  atualizarSenha(id: string, senhaHash: string, db: Db | Tx = this.prisma.db) {
+    return db.usuario.update({ where: { id }, data: { senhaHash, sessaoValidaDesde: new Date() }, select: { id: true } });
   }
 
   buscarSenhaHash(id: string) {
@@ -76,8 +81,14 @@ export class UsuariosService {
           const outros = await tx.usuario.count({ where: { perfil: 'DONO', ativo: true, id: { not: id } } });
           if (outros === 0) throw new ErroNegocio(422, 'ULTIMO_DONO', 'A oficina precisa de pelo menos um dono ativo');
         }
-        const atualizado = await tx.usuario.update({ where: { id }, data: dados, select: CAMPOS_PUBLICOS });
-        return { atualizado, desativou: alvo.ativo && dados.ativo === false };
+        const desativou = alvo.ativo && dados.ativo === false;
+        // desativar corta os access tokens já emitidos: reativar depois não os ressuscita
+        const atualizado = await tx.usuario.update({
+          where: { id },
+          data: { ...dados, ...(desativou ? { sessaoValidaDesde: new Date() } : {}) },
+          select: CAMPOS_PUBLICOS,
+        });
+        return { atualizado, desativou, mudouPerfil: dados.perfil !== undefined && dados.perfil !== alvo.perfil };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -91,11 +102,11 @@ export class UsuariosService {
     try {
       resultado = await this.executarAlteracao(id, dados);
     } catch (erro) {
-      if (!(erro instanceof Prisma.PrismaClientKnownRequestError) || erro.code !== 'P2034') throw erro;
+      if (!ehConflitoDeTransacao(erro)) throw erro;
       try {
         resultado = await this.executarAlteracao(id, dados);
       } catch (erroRetentativa) {
-        if (erroRetentativa instanceof Prisma.PrismaClientKnownRequestError && erroRetentativa.code === 'P2034') {
+        if (ehConflitoDeTransacao(erroRetentativa)) {
           throw new ErroNegocio(409, 'CONFLITO', 'Outra alteração na equipe aconteceu ao mesmo tempo. Tente de novo');
         }
         throw erroRetentativa;
@@ -104,6 +115,11 @@ export class UsuariosService {
 
     if (resultado.desativou) {
       await this.eventos.emitAsync(USUARIO_DESATIVADO, { oficinaId: ator.oficinaId, usuarioId: id } satisfies UsuarioDesativado);
+    }
+    if (resultado.mudouPerfil) {
+      await this.eventos.emitAsync(USUARIO_CREDENCIAIS_ALTERADAS, {
+        oficinaId: ator.oficinaId, usuarioId: id, motivo: 'PERFIL_ALTERADO',
+      } satisfies UsuarioCredenciaisAlteradas);
     }
     return resultado.atualizado;
   }

@@ -70,10 +70,51 @@ describe('Cadastro e confirmação de e-mail', () => {
     const r1 = await ctx.http.post('/api/v1/auth/reenviar-confirmacao').send({ email }).expect(200);
     const r2 = await ctx.http.post('/api/v1/auth/reenviar-confirmacao').send({ email: `ninguem-${sufixo()}@teste.local` }).expect(200);
     expect(r1.body).toEqual(r2.body);
+    await ctx.emails.aguardarPendentes(); // token e e-mail saem depois da resposta
     const segundo = tokenDoLink(ctx.emails.ultimoPara(email)!.texto)!;
     expect(segundo).not.toBe(primeiro);
     await ctx.http.post('/api/v1/auth/confirmar-email').set('Origin', ORIGEM).send({ token: primeiro }).expect(400);
     await ctx.http.post('/api/v1/auth/confirmar-email').set('Origin', ORIGEM).send({ token: segundo }).expect(200);
+  });
+
+  it('reenviar confirmação: no máximo 3 links por hora para o mesmo destinatário (contando o do cadastro)', async () => {
+    const email = `limite-${sufixo()}@teste.local`;
+    await ctx.http.post('/api/v1/auth/cadastro').send(dados(await codigos.gerar('e'), email)).expect(201);
+    for (let i = 0; i < 4; i++) await ctx.http.post('/api/v1/auth/reenviar-confirmacao').send({ email }).expect(200);
+    await ctx.emails.aguardarPendentes();
+    expect(ctx.emails.enviados.filter((m) => m.para === email)).toHaveLength(3);
+  });
+
+  it('WhatsApp do dono (opcional): salvo em E.164 e serve para entrar pelo telefone', async () => {
+    const email = `zap-${sufixo()}@teste.local`;
+    const zap = telefone();
+    const base = dados(await codigos.gerar('f'), email);
+    await ctx.http.post('/api/v1/auth/cadastro').send({ ...base, dono: { ...base.dono, telefone: zap.replace('+55', '') } }).expect(201);
+    const token = tokenDoLink(ctx.emails.ultimoPara(email)!.texto)!;
+    await ctx.http.post('/api/v1/auth/confirmar-email').set('Origin', ORIGEM).send({ token }).expect(200);
+    const r = await ctx.http.post('/api/v1/auth/login').send({ identificador: zap, senha: 'motor-v8-turbo' }).expect(200);
+    expect(r.body.usuario).toMatchObject({ email, perfil: 'DONO' });
+  });
+
+  it('WhatsApp já usado por outra conta → 409 TELEFONE_JA_CADASTRADO e o código NÃO é consumido', async () => {
+    const zap = telefone();
+    const primeiro = dados(await codigos.gerar('g'));
+    await ctx.http.post('/api/v1/auth/cadastro').send({ ...primeiro, dono: { ...primeiro.dono, telefone: zap } }).expect(201);
+    const codigo = await codigos.gerar('h');
+    const segundo = dados(codigo);
+    const r = await ctx.http.post('/api/v1/auth/cadastro').send({ ...segundo, dono: { ...segundo.dono, telefone: zap } }).expect(409);
+    expect(r.body.code).toBe('TELEFONE_JA_CADASTRADO');
+    await ctx.http.post('/api/v1/auth/cadastro').send(dados(codigo)).expect(201);
+  });
+
+  it('corrida de cadastros com o mesmo WhatsApp: um passa, o outro recebe TELEFONE_JA_CADASTRADO (P2002 mapeado)', async () => {
+    const zap = telefone();
+    const [a, b] = [dados(await codigos.gerar('i')), dados(await codigos.gerar('j'))];
+    const respostas = await Promise.all(
+      [a, b].map((d) => ctx.http.post('/api/v1/auth/cadastro').send({ ...d, dono: { ...d.dono, telefone: zap } })),
+    );
+    expect(respostas.map((r) => r.status).toSorted()).toEqual([201, 409]);
+    expect(respostas.find((r) => r.status === 409)!.body.code).toBe('TELEFONE_JA_CADASTRADO');
   });
 
   it('senha comum e termos não aceitos são recusados pelo schema', async () => {

@@ -54,6 +54,69 @@ describe('Convites', () => {
     await ctx.http.post('/api/v1/convites/consultar').send({ token: novo }).expect(400);
   });
 
+  it('reenviar vale no máximo 3 vezes por convite; a 4ª → 429 MUITAS_TENTATIVAS e o último link segue válido', async () => {
+    const { usuario: dono } = await criarOficinaComUsuario(ctx);
+    const d = await entrar(ctx, dono.email);
+    const c = await ctx.http.post('/api/v1/convites').set(auth(d.accessToken)).send({ nome: 'Mec', email: `reenv-${sufixo()}@teste.local` }).expect(201);
+    let ultimo = '';
+    for (let i = 0; i < 3; i++) {
+      ultimo = (await ctx.http.post(`/api/v1/convites/${c.body.convite.id}/reenviar`).set(auth(d.accessToken)).expect(200)).body.link;
+    }
+    const r = await ctx.http.post(`/api/v1/convites/${c.body.convite.id}/reenviar`).set(auth(d.accessToken)).expect(429);
+    expect(r.body).toMatchObject({ code: 'MUITAS_TENTATIVAS', message: 'Limite de reenvios deste convite atingido. Cancele e convide de novo' });
+    await ctx.http.post('/api/v1/convites/consultar').send({ token: tokenDoLink(ultimo)! }).expect(200);
+    // cancelar e convidar de novo zera a contagem (convite novo)
+    await ctx.http.delete(`/api/v1/convites/${c.body.convite.id}`).set(auth(d.accessToken)).expect(204);
+    await ctx.http.post(`/api/v1/convites/${c.body.convite.id}/reenviar`).set(auth(d.accessToken)).expect(404);
+  });
+
+  it('convite DONO de um DONO ativo é aceito normalmente', async () => {
+    const { oficina, usuario: dono } = await criarOficinaComUsuario(ctx);
+    const d = await entrar(ctx, dono.email);
+    const c = await ctx.http.post('/api/v1/convites').set(auth(d.accessToken)).send({ nome: 'Sócia', email: `socia-${sufixo()}@teste.local`, perfil: 'DONO' }).expect(201);
+    const r = await ctx.http.post('/api/v1/convites/aceitar').set('Origin', ORIGEM).send({ token: tokenDoLink(c.body.link)!, senha: 'chave-de-roda-12' }).expect(200);
+    expect(r.body.usuario).toMatchObject({ perfil: 'DONO', oficina: { id: oficina.id } });
+  });
+
+  const pendentesDe = (oficinaId: string, criadoPorId: string) =>
+    ctx.tenant.executarComo(oficinaId, () => ctx.prisma.db.convite.count({ where: { criadoPorId, usadoEm: null } }));
+
+  async function cenario() {
+    const { oficina, usuario: dono1 } = await criarOficinaComUsuario(ctx);
+    const dono2 = await criarUsuarioNa(ctx, oficina.id, 'DONO');
+    const d1 = await entrar(ctx, dono1.email);
+    const d2 = await entrar(ctx, dono2.email);
+    const deDono1 = await ctx.http.post('/api/v1/convites').set(auth(d1.accessToken)).send({ nome: 'Mec', email: `d1-${sufixo()}@teste.local` }).expect(201);
+    await ctx.http.post('/api/v1/convites').set(auth(d2.accessToken)).send({ nome: 'Mec', email: `d2-${sufixo()}@teste.local` }).expect(201);
+    expect(await pendentesDe(oficina.id, dono2.id)).toBe(1);
+    return { oficina, dono1, dono2, d1, deDono1 };
+  }
+
+  describe('convites pendentes de quem perde acesso são apagados (auditoria #1)', () => {
+    it('ao desativar', async () => {
+      const { oficina, dono1, dono2, d1, deDono1 } = await cenario();
+      await ctx.http.patch(`/api/v1/usuarios/${dono2.id}`).set(auth(d1.accessToken)).send({ ativo: false }).expect(200);
+      expect(await pendentesDe(oficina.id, dono2.id)).toBe(0);
+      expect(await pendentesDe(oficina.id, dono1.id)).toBe(1); // os de quem continua DONO ficam
+      await ctx.http.post('/api/v1/convites/consultar').send({ token: tokenDoLink(deDono1.body.link)! }).expect(200);
+    });
+
+    it('ao rebaixar', async () => {
+      const { oficina, dono2, d1 } = await cenario();
+      await ctx.http.patch(`/api/v1/usuarios/${dono2.id}`).set(auth(d1.accessToken)).send({ perfil: 'FUNCIONARIO' }).expect(200);
+      expect(await pendentesDe(oficina.id, dono2.id)).toBe(0);
+    });
+
+    it('ao redefinir a senha (conta possivelmente invadida)', async () => {
+      const { oficina, dono2 } = await cenario();
+      await ctx.http.post('/api/v1/auth/esqueci-senha').send({ email: dono2.email }).expect(200);
+      await ctx.emails.aguardarPendentes();
+      const token = tokenDoLink(ctx.emails.ultimoPara(dono2.email)!.texto)!;
+      await ctx.http.post('/api/v1/auth/redefinir-senha').send({ token, senha: 'nova-senha-do-ze' }).expect(200);
+      expect(await pendentesDe(oficina.id, dono2.id)).toBe(0);
+    });
+  });
+
   it('convite expirado → TOKEN_INVALIDO', async () => {
     const { oficina, usuario: dono } = await criarOficinaComUsuario(ctx);
     const d = await entrar(ctx, dono.email);

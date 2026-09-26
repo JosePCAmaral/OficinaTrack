@@ -1,14 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
-import { fatorLimites } from '../../common/seguranca/limites.js';
 
-const MAX_FALHAS = 5;
-const JANELA_MS = 15 * 60_000;
+export const MAX_FALHAS = 5;
+export const JANELA_MS = 15 * 60_000;
 
 /**
- * Falhas de login por identificador (e-mail/telefone normalizado), em memória.
- * Complementa o limite por IP do throttler. Uma instância da API no MVP; com várias,
- * mover para o Postgres ou Redis (registrado no docs/06).
+ * Falhas de login por conta (ou por identificador, quando a conta não existe), em memória.
+ * Complementa o limite por IP do throttler. Não usa `FATOR_LIMITES`: é por conta, não por IP,
+ * e os testes precisam do valor real. Bloqueio fixo de 5 falhas / 15 min: permite a quem sabe o
+ * e-mail de um dono bloquear o login dele (trade-off registrado no docs/06). Uma instância da
+ * API no MVP; com várias, mover para o Postgres ou Redis com chave (conta, IP).
  */
 @Injectable()
 export class LimiteTentativasService {
@@ -21,7 +22,7 @@ export class LimiteTentativasService {
       this.falhas.delete(chave);
       return;
     }
-    if (registro.total >= MAX_FALHAS * fatorLimites()) {
+    if (registro.total >= MAX_FALHAS) {
       throw new ErroNegocio(429, 'MUITAS_TENTATIVAS', 'Muitas tentativas. Tente de novo em alguns minutos');
     }
   }

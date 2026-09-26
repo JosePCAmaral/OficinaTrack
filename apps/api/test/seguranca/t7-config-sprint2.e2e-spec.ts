@@ -24,14 +24,14 @@ describe('T7: configuração de produção (auditoria Sprint 2)', () => {
     expect(() => validarEnv(envProducao())).not.toThrow();
   });
 
-  it('[achado #4, FALHA HOJE] recusa em produção o JWT_SEGREDO de exemplo do .env.example', () => {
+  it('[achado #4, corrigido] recusa em produção o JWT_SEGREDO de exemplo do .env.example', () => {
     const segredoExemplo = valorExemplo('JWT_SEGREDO');
     expect(segredoExemplo.length).toBeGreaterThanOrEqual(32); // por isso passa no .min(32)
     // com o segredo público, qualquer um forja { sub, oficinaId, perfil } e entra em qualquer oficina
     expect(() => validarEnv(envProducao({ JWT_SEGREDO: segredoExemplo }))).toThrow();
   });
 
-  it('[achado #8, FALHA HOJE] recusa em produção FATOR_LIMITES > 1 e EMAIL_TRANSPORTE=memoria', () => {
+  it('[achado #8, corrigido] recusa em produção FATOR_LIMITES > 1 e EMAIL_TRANSPORTE=memoria', () => {
     expect(() => validarEnv(envProducao({ FATOR_LIMITES: '100' }))).toThrow();
     expect(() => validarEnv(envProducao({ EMAIL_TRANSPORTE: 'memoria' }))).toThrow();
   });

@@ -44,7 +44,7 @@ export class SessoesService {
   /** Chamar dentro do contexto da oficina do usuário. */
   async criar(usuario: { id: string; oficinaId: string; perfil: PerfilUsuario }, familiaId: string = randomUUID()): Promise<Sessao> {
     const { token, refreshExpiraEm } = await this.criarRegistro(this.prisma.db, usuario, familiaId);
-    const payload: PayloadAcesso = { sub: usuario.id, oficinaId: usuario.oficinaId, perfil: usuario.perfil, fam: familiaId };
+    const payload: PayloadAcesso = { sub: usuario.id, oficinaId: usuario.oficinaId, perfil: usuario.perfil, fam: familiaId, emitidoEmMs: Date.now() };
     return { accessToken: await this.jwt.signAsync(payload), refreshToken: token, refreshExpiraEm, familiaId };
   }
 
@@ -88,7 +88,7 @@ export class SessoesService {
         return this.criarRegistro(tx, usuario, registro.familiaId);
       });
 
-      const payload: PayloadAcesso = { sub: usuario.id, oficinaId: usuario.oficinaId, perfil: usuario.perfil, fam: registro.familiaId };
+      const payload: PayloadAcesso = { sub: usuario.id, oficinaId: usuario.oficinaId, perfil: usuario.perfil, fam: registro.familiaId, emitidoEmMs: Date.now() };
       const accessToken = await this.jwt.signAsync(payload);
       return { accessToken, refreshToken: token, refreshExpiraEm, familiaId: registro.familiaId, usuarioId: usuario.id, oficinaId: usuario.oficinaId };
     });
@@ -103,9 +103,9 @@ export class SessoesService {
     await this.tenant.executarComo(registro.oficinaId, () => this.revogarFamilia(registro.familiaId));
   }
 
-  /** Chamar dentro do contexto da oficina. */
-  async revogarTodasDoUsuario(usuarioId: string, excetoFamilia?: string): Promise<void> {
-    await this.prisma.db.refreshToken.updateMany({
+  /** Chamar dentro do contexto da oficina (ou com o `tx` de uma transação já nele). */
+  async revogarTodasDoUsuario(usuarioId: string, excetoFamilia?: string, db: Db = this.prisma.db): Promise<void> {
+    await db.refreshToken.updateMany({
       where: { usuarioId, revogadoEm: null, ...(excetoFamilia ? { familiaId: { not: excetoFamilia } } : {}) },
       data: { revogadoEm: new Date() },
     });

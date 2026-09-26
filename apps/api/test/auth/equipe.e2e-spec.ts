@@ -45,6 +45,30 @@ describe('Oficina e equipe', () => {
     await entrar(ctx, func.email);
   });
 
+  it('reativar não ressuscita o access token emitido antes da desativação (sessaoValidaDesde)', async () => {
+    const { oficina, usuario: dono } = await criarOficinaComUsuario(ctx);
+    const func = await criarUsuarioNa(ctx, oficina.id, 'FUNCIONARIO');
+    const d = await entrar(ctx, dono.email);
+    const antigo = await entrar(ctx, func.email);
+    await ctx.http.patch(`/api/v1/usuarios/${func.id}`).set(auth(d.accessToken)).send({ ativo: false }).expect(200);
+    await ctx.http.patch(`/api/v1/usuarios/${func.id}`).set(auth(d.accessToken)).send({ ativo: true }).expect(200);
+    await ctx.http.get('/api/v1/auth/eu').set(auth(antigo.accessToken)).expect(401);
+    const novo = await entrar(ctx, func.email);
+    await ctx.http.get('/api/v1/auth/eu').set(auth(novo.accessToken)).expect(200);
+  });
+
+  it('GET /oficinas/atual: DONO recebe o CPF/CNPJ; FUNCIONARIO recebe null (minimização)', async () => {
+    const { oficina, usuario: dono } = await criarOficinaComUsuario(ctx);
+    const func = await criarUsuarioNa(ctx, oficina.id, 'FUNCIONARIO');
+    const d = await entrar(ctx, dono.email);
+    await ctx.http.patch('/api/v1/oficinas/atual').set(auth(d.accessToken)).send({ nome: 'Oficina MEI', telefone: '43988887777', documento: '529.982.247-25' }).expect(200);
+    const doDono = await ctx.http.get('/api/v1/oficinas/atual').set(auth(d.accessToken)).expect(200);
+    expect(doDono.body).toMatchObject({ nome: 'Oficina MEI', documento: '52998224725' });
+    const f = await entrar(ctx, func.email);
+    const doFunc = await ctx.http.get('/api/v1/oficinas/atual').set(auth(f.accessToken)).expect(200);
+    expect(doFunc.body).toMatchObject({ nome: 'Oficina MEI', documento: null });
+  });
+
   it('não pode alterar a si mesmo nem deixar a oficina sem DONO ativo (Review Focus 5)', async () => {
     const { oficina, usuario: dono1 } = await criarOficinaComUsuario(ctx);
     const dono2 = await criarUsuarioNa(ctx, oficina.id, 'DONO');

@@ -31,10 +31,37 @@ const envSchema = z.object({
   FATOR_LIMITES: z.coerce.number().int().min(1).default(1),
 });
 
+/**
+ * Segredos públicos (placeholder do `.env.example`, segredo dos testes e do CI): quem lê o
+ * repositório forjaria tokens `{ sub, oficinaId, perfil }` (auditoria #4). Recusados em produção.
+ */
+const SEGREDOS_PUBLICOS = new Set([
+  'troque-por-um-segredo-gerado-com-pelo-menos-32-caracteres',
+  'segredo-de-teste-com-mais-de-32-caracteres!!',
+  'segredo-de-ci-com-mais-de-32-caracteres-para-testes',
+]);
+/** 43 caracteres base64url ≈ 256 bits (o comando do `.env.example` gera 64). */
+const MIN_SEGREDO_PRODUCAO = 43;
+
+/**
+ * Regras só de produção (`NODE_ENV=production`, que o deploy precisa definir: o padrão é
+ * `development`). Um erro de variável não pode desligar um controle em silêncio (auditoria #4, #8).
+ */
+const envProducaoSchema = envSchema.superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+  const segredo = env.JWT_SEGREDO;
+  if (SEGREDOS_PUBLICOS.has(segredo) || segredo.startsWith('troque') || segredo.length < MIN_SEGREDO_PRODUCAO) {
+    ctx.addIssue({ code: 'custom', path: ['JWT_SEGREDO'], message: 'segredo público ou curto em produção' });
+  }
+  if (env.FATOR_LIMITES !== 1) ctx.addIssue({ code: 'custom', path: ['FATOR_LIMITES'], message: 'precisa ser 1 em produção' });
+  if (env.EMAIL_TRANSPORTE !== 'smtp') ctx.addIssue({ code: 'custom', path: ['EMAIL_TRANSPORTE'], message: 'precisa ser smtp em produção' });
+});
+
 export type Env = z.infer<typeof envSchema>;
 
+/** Falha listando só os nomes das variáveis, nunca os valores (podem ser segredos). */
 export function validarEnv(config: Record<string, unknown>): Env {
-  const resultado = envSchema.safeParse(config);
+  const resultado = envProducaoSchema.safeParse(config);
   if (!resultado.success) {
     const nomes = resultado.error.issues.map((i) => i.path.join('.')).join(', ');
     throw new Error(`Variáveis de ambiente inválidas: ${nomes}`);

@@ -99,6 +99,8 @@ model Usuario {
   senhaHash         String
   perfil            PerfilUsuario
   ativo             Boolean       @default(true)
+  /// Access tokens emitidos antes deste instante são recusados (redefinir/trocar senha, desativar).
+  sessaoValidaDesde DateTime?
   criadoEm          DateTime      @default(now())
   atualizadoEm      DateTime      @updatedAt
 
@@ -139,6 +141,7 @@ model Convite {
   tokenHash   String        @unique
   expiraEm    DateTime
   usadoEm     DateTime?
+  reenvios    Int           @default(0) // máximo 3 por convite (anti-spam)
   criadoPorId String
   criadoPor   Usuario       @relation(fields: [oficinaId, criadoPorId], references: [oficinaId, id], onUpdate: Restrict)
   criadoEm    DateTime      @default(now())

@@ -22,3 +22,6 @@ export const telefoneSchema = z.string().max(MAX_ENTRADA).transform((valor, ctx)
   }
   return telefone;
 });
+
+/** Telefone opcional de formulário: string vazia vira `undefined`; o resto é normalizado para E.164. */
+export const telefoneOpcionalSchema = z.preprocess((v) => (v === '' ? undefined : v), telefoneSchema.optional());
