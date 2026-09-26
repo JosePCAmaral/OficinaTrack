@@ -38,11 +38,16 @@ Validado nas visitas ("está bom").
 
 ### Épico A — Conta e oficina
 
-- **A1.** Como dono, quero criar a conta da minha oficina (nome, CNPJ/CPF opcional, telefone, endereço, logo) para começar a usar.
-- **A2.** Como dono, quero convidar funcionários (nome, telefone/e-mail) para que usem o sistema.
+- **A1.** Como dono, quero criar a conta da minha oficina (nome, CNPJ/CPF opcional, telefone, endereço) para começar a usar. Cadastro **fechado durante o piloto**: exige um código de piloto gerado pelo administrador (`CADASTRO_EXIGE_CODIGO`, padrão `true`). Upload da logo fica para a Sprint 6.
+- **A2.** Como dono, quero convidar funcionários (nome, e-mail obrigatório, telefone opcional, perfil) para que usem o sistema, com um botão para enviar o convite pelo WhatsApp.
 - **A3.** Como usuário da oficina, quero fazer login com e-mail/telefone e senha e ficar logado no celular.
 
-**Critérios:** senha com hash (argon2); JWT de acesso curto + refresh token; um usuário pertence a uma oficina no MVP; convite com token de uso único e expiração curta.
+**Critérios:**
+- E-mail entra no MVP como canal de autenticação: confirmação de e-mail no cadastro/convite, redefinição de senha e envio de convite são todos por e-mail (SMTP/Mailpit). SMS continua fora do MVP (interface sem implementação real). Trocar e-mail de uma conta existente fica fora da Sprint 2.
+- **E-mail é obrigatório para todo usuário** (dono e funcionário); todo mundo redefine a própria senha por e-mail.
+- **O dono só acessa o painel depois de confirmar o e-mail** (o funcionário entra com `emailConfirmadoEm` já preenchido pelo aceite do convite).
+- Senha com hash (argon2id); JWT de acesso curto (15 min) + refresh token opaco rotativo em cookie; um usuário pertence a uma oficina no MVP; convite com token de uso único e expiração de 72 h.
+- **Perfis com permissões:** `DONO` e `FUNCIONARIO`, com um mapa de permissões por perfil (não um `if perfil === ...` espalhado), para caber perfis futuros (`FINANCEIRO`, `PATIO`) sem mexer em telas e endpoints. Permissões finas por funcionário continuam fora do MVP.
 
 ### Épico B — Clientes e veículos
 
@@ -112,6 +117,7 @@ Sem API oficial do WhatsApp no MVP (custo por mensagem). Sem push notification n
 - Multi-unidade (uma conta com várias oficinas)
 - Consulta automática de placa (API paga)
 - Permissões finas por funcionário (além de `DONO` e `FUNCIONARIO`)
+- Trocar e-mail de uma conta existente; SMS real; login em dois fatores; login social; tela de administração de códigos de piloto; upload de logo da oficina (Sprint 6); criptografia campo a campo de CPF/CNPJ
 
 ## Definição de pronto (para cada história)
 

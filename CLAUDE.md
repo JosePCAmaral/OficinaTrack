@@ -43,7 +43,7 @@ pnpm monorepo · `apps/api` NestJS + Prisma + PostgreSQL · `apps/web` React + V
 ```bash
 pnpm install
 cp apps/api/.env.example apps/api/.env
-docker compose up -d --wait        # postgres (bancos oficinatrack e oficinatrack_test)
+docker compose up -d --wait        # postgres (bancos oficinatrack e oficinatrack_test) + mailpit
 pnpm --filter @oficinatrack/api prisma:migrate
 pnpm dev                           # shared (watch) + api + web
 pnpm test                          # todos os testes (precisa do postgres rodando)
@@ -53,6 +53,8 @@ pnpm --filter @oficinatrack/api codigo-piloto "Oficina do Zé - Ribeirão do Pin
 ```
 
 A API sobe na porta `3333` por padrão (`PORT` em `apps/api/.env`); o servidor de dev do Vite (`apps/web`, porta `5173`) faz proxy de `/api` para `http://localhost:3333`. A porta 3000 fica livre porque já é usada por outros projetos nesta máquina.
+
+**E-mail em dev:** os e-mails de confirmação/redefinição/convite caem no **Mailpit** (`http://localhost:8025`; SMTP em `1025`), subido pelo `docker compose`. Variáveis novas da Sprint 2 (`JWT_SEGREDO`, `SMTP_*`, `EMAIL_REMETENTE`, `URL_APP`, `CADASTRO_EXIGE_CODIGO`, `FATOR_LIMITES`) estão documentadas com exemplo em `apps/api/.env.example`. `codigo-piloto` roda `nest build` antes (reconstrói `dist/`); só rode a partir de um checkout de desenvolvimento.
 
 ## Subagents disponíveis (`.claude/agents/`)
 

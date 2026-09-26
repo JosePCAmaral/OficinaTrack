@@ -45,18 +45,20 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 - `Referrer-Policy: no-referrer` e `noindex` nas páginas do portal, para o token não vazar em logs de terceiros ou em buscadores.
 - Aprovação do orçamento: idempotente, só em orçamento `ENVIADO` da versão atual, registra IP/user-agent/data.
 
-### T3 — Tomada de conta de usuário da oficina: **alto**
-- Senhas com argon2id; política mínima de 8+ caracteres e checagem contra senhas comuns.
-- Rate limit + atraso progressivo no login; mensagem genérica ("e-mail ou senha inválidos").
-- Access token curto (15 min) em memória; refresh token rotativo em cookie `httpOnly; Secure; SameSite=Strict`, com detecção de reuso (reuso = revoga a família toda).
-- Logout revoga o refresh token; desativar usuário revoga todos.
-- Troca de senha/e-mail exige a senha atual.
-- Convites com token de uso único e expiração curta.
+### T3 — Tomada de conta de usuário da oficina: **alto** (implementado na Sprint 2)
+- Senhas com argon2id (`@node-rs/argon2`); política `senhaSchema` (8–128 caracteres, recusa lista de senhas comuns embutida).
+- Rate limit por rota (`@nestjs/throttler`, login 5/min por IP) **e** limite por identificador (e-mail/telefone normalizado) em memória, `LimiteTentativasService`, 5 falhas / 15 min — **só uma instância da API**: com mais de uma, mover para Postgres/Redis. Mensagem genérica (`CREDENCIAIS_INVALIDAS`) tanto para senha errada quanto para conta inexistente, com tempo de resposta equivalente (hash de senha falso quando o usuário não existe).
+- Access token JWT de 15 min em memória (nunca em `localStorage`); refresh token opaco rotativo em cookie `httpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, com detecção de reuso (reuso de um token já rotacionado revoga a família toda). Tolerância de 10 s na rotação para duas abas renovando ao mesmo tempo não se derrubarem (ver `docs/03-arquitetura.md`); o front tenta a renovação de novo uma vez após 800 ms antes de limpar a sessão, e só limpa em `401` de verdade.
+- Logout revoga o refresh token; desativar usuário revoga todas as sessões (listener em `USUARIO_DESATIVADO`) e o guard confere `ativo` no banco a cada requisição → o próximo request já responde 401, imediato. **Troca de senha não revoga o access token em voo**: como o guard não versiona o JWT pela senha, um access token emitido antes da troca continua válido até expirar (até 15 min depois) — só o refresh (e as sessões dos outros aparelhos) é revogado na hora. Registrado como limite conhecido; revisitar se precisar de revogação imediata de access token.
+- Troca de senha exige a senha atual e revoga as sessões dos outros aparelhos; troca de e-mail fica fora da Sprint 2.
+- Tokens de link (confirmar e-mail, redefinir senha, convite) com 32 bytes aleatórios, hash SHA-256, uso único, expiração curta (24 h / 1 h / 72 h) e **viajam no fragmento da URL** (`#token`), nunca em query string — não é enviado ao servidor nem aparece em logs de acesso. As telas de link só chamam a API depois de um clique explícito (proteção contra pré-visualização/antivírus do provedor de e-mail abrindo o link sozinho).
+- **Enumeração aceita no piloto:** `POST /convites` e `POST /auth/cadastro` (com código de piloto válido) respondem `409 EMAIL_JA_CADASTRADO` quando o e-mail já tem conta — permite descobrir se um e-mail está cadastrado nesses dois fluxos (não no login nem no "esqueci a senha", que respondem sempre igual). Risco aceito para o piloto; revisitar se abrir cadastro público.
+- **Cadastro fechado no piloto:** `CodigoPiloto` (model global, sem `oficinaId` obrigatório, fora de `MODELOS_COM_TENANT`) — hash SHA-256, uso único, validade de 30 dias, controlado por `CADASTRO_EXIGE_CODIGO` (padrão `true`). Todo acesso roda dentro de `tenant.executarSemTenant(...)`, comentado. A extensão de tenant falha **fechado**: qualquer model do schema fora de `Oficina`, `MODELOS_COM_TENANT` ou `MODELOS_GLOBAIS` lança `TenantModeloDesconhecidoError` em vez de devolver dados sem filtro — um model novo precisa ser classificado antes de ser usado.
 
-### T4 — Escalada de privilégio dentro da oficina: **médio**
-- Guard de perfil (`DONO`, `FUNCIONARIO`) em cada rota, com negação por padrão.
-- Só `DONO` gerencia usuários e dados da oficina.
-- Usuário não pode alterar o próprio perfil.
+### T4 — Escalada de privilégio dentro da oficina: **médio** (implementado na Sprint 2)
+- Guard de permissões (`PermissaoGuard`) depois do guard de autenticação, com negação por padrão; endpoints declaram permissões (`EQUIPE_GERENCIAR`, `OFICINA_EDITAR`), não perfis diretamente.
+- Só `DONO` gerencia usuários, convites e dados da oficina.
+- Usuário não pode alterar o próprio perfil nem se desativar (`ACAO_NAO_PERMITIDA_EM_SI_MESMO`); a oficina sempre mantém pelo menos um `DONO` ativo (`ULTIMO_DONO`, 422). A checagem roda dentro de uma transação `Serializable` (com uma retentativa em `P2034`, senão `409 CONFLITO`) para fechar a corrida de duas alterações de equipe concorrentes.
 
 ### T5 — Upload malicioso / acesso indevido a arquivos: **médio**
 - Bucket privado; downloads só por URL pré-assinada curta (≤ 10 min).
@@ -97,10 +99,18 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 ## LGPD (mínimo)
 
 - Oficina = **controladora**; OficinaTrack = **operadora**. Documentar isso nos termos.
-- Política de privacidade e termos de uso aceitos no cadastro da oficina (guardar versão e data).
-- Coletar só o necessário (CPF opcional).
+- Política de privacidade e termos de uso aceitos no cadastro da oficina (guardar versão e data, `Oficina.termosVersao`/`termosAceitosEm`).
+- Coletar só o necessário (CPF/CNPJ opcional em `Oficina.documento`).
 - Permitir exportar e excluir/anonimizar dados de um cliente a pedido da oficina.
 - Registro de incidentes: saber quem avisar e em quanto tempo (ANPD e titulares, quando aplicável).
+- **D7 — sem criptografia campo a campo de CPF/CNPJ** (`Oficina.documento`): protegido só pela criptografia em repouso do provedor de banco, igual aos demais campos. Decisão de escopo para o piloto (poucas oficinas, dado opcional); **reavaliar antes de produção**, especialmente se o volume de oficinas crescer ou se CPF/CNPJ passar a ser exigido.
+
+## Limites conhecidos (revisitar antes de produção)
+
+- **Rate limit por identificador e lockout de login em memória** (`LimiteTentativasService`): reseta se a API reiniciar e não é compartilhado entre instâncias — funciona para o piloto (uma instância), mas precisa de storage compartilhado (Postgres/Redis) antes de escalar horizontalmente. O mesmo vale para o storage padrão do `@nestjs/throttler`.
+- **Diferença pequena de tempo de resposta** em `esqueci-senha` e `reenviar-confirmacao`: o caminho "conta existe" faz uma escrita extra (criar o token) antes de responder; o caminho "conta não existe" só lê. A resposta HTTP é idêntica nos dois casos, mas o tempo pode variar o suficiente para um atacante paciente distinguir os dois casos por timing. Mitigar antes de produção movendo a criação do token para fora do caminho crítico de resposta.
+- **Access token não é revogado na troca de senha** (só o refresh e as sessões dos outros aparelhos): ver T3 acima.
+- **Enumeração aceita em convite e cadastro com código**: ver T3 acima.
 
 ## Quando rodar o subagent `seguranca`
 

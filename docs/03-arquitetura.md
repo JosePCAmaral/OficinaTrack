@@ -42,16 +42,16 @@ oficinatrack/
 │   │   │   ├── common/         # guards, interceptors, filtros, decorators, tenant context
 │   │   │   ├── prisma/         # PrismaService + extensão de tenant
 │   │   │   └── modules/
-│   │   │       ├── auth/
+│   │   │       ├── auth/             # cadastro, login, sessão, senha
 │   │   │       ├── oficinas/
-│   │   │       ├── usuarios/
+│   │   │       ├── usuarios/         # equipe e convites
 │   │   │       ├── clientes/
 │   │   │       ├── veiculos/
 │   │   │       ├── ordens-servico/   # OS, status, eventos, checklist
 │   │   │       ├── orcamentos/
 │   │   │       ├── arquivos/         # URLs pré-assinadas R2
 │   │   │       ├── portal-cliente/   # endpoints públicos por token
-│   │   │       └── notificacoes/     # MVP: gera textos/links wa.me
+│   │   │       └── notificacoes/     # e-mail (Sprint 2) e SMS (interface, sem implementação)
 │   │   ├── prisma/schema.prisma
 │   │   └── test/
 │   └── web/                    # React (painel da oficina + portal do cliente)
@@ -87,6 +87,22 @@ oficinatrack/
 - **`$queryRaw`/`$executeRaw` não passam pela extensão**: todo SQL cru precisa filtrar `oficinaId` à mão e entrar na lista revisada do teste `test/seguranca/padroes-codigo.e2e-spec.ts`.
 - Todo módulo tem **teste de isolamento**: usuário da oficina A tenta ler/alterar recurso da oficina B → 404.
 - Futuro opcional: Row Level Security no Postgres como quarta camada.
+
+## Autenticação e sessão (Sprint 2)
+
+- **Guard global de autenticação, negação por padrão** (`AutenticacaoGuard`): rotas públicas precisam do decorator `@Publico()`. O guard valida o JWT (`HS256`), chama `tenant.definirOficina(oficinaId)` e busca **perfil e `ativo` no banco a cada requisição** — desativar um usuário ou trocar seu perfil vale na próxima chamada, sem esperar o access token expirar. O usuário atual fica disponível por `@UsuarioAtual()`.
+- **Guard de permissões** (`PermissaoGuard`) roda depois do de autenticação; endpoints declaram permissões (`@Permissao('EQUIPE_GERENCIAR')`), nunca perfis, para caber perfis futuros sem mexer nas rotas.
+- **Sessão:** access token JWT de 15 min (payload `sub`, `oficinaId`, `perfil`, `fam`), guardado só na memória do front. Refresh token opaco em cookie `httpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, 30 dias, rotativo (mesma `familiaId` a cada renovação); reuso de um token já rotacionado revoga a família inteira.
+- **Tolerância de concorrência de 10 s na rotação do refresh:** duas abas (ou app e navegador) renovando a sessão ao mesmo tempo não derrubam a família nem deslogam o usuário. A rotação (marcar `substituidoEm` + criar o próximo token) roda numa transação que também reconfere se a família já foi revogada por outra requisição concorrente; quem perde a corrida recebe `401 SESSAO_INVALIDA` **sem o controller apagar o cookie de refresh** (apagar apagaria, numa corrida real, o cookie novo que a requisição vencedora acabou de gravar no navegador).
+- **Cliente da API (`apps/web/src/lib/sessao.ts`):** uma única renovação em voo por vez, compartilhada entre chamadas simultâneas; se `/auth/refresh` responder `401`, tenta de novo uma vez após 800 ms (dá tempo da rotação concorrente da outra aba terminar) antes de desistir. Só limpa a sessão (chama `definirToken(null)`) quando o refresh responde `401` de verdade; erro de rede, 5xx ou 429 apenas devolvem `null`. Rotas públicas de auth/convite (`/auth/login`, `/auth/cadastro`, `/convites/aceitar`, etc.) nunca disparam essa renovação — um 401 nelas é credencial/token inválido, não sessão expirada.
+- **Tokens de link (confirmar e-mail, redefinir senha, aceitar convite) viajam no fragmento da URL** (`https://app.../confirmar-email#<token>`), nunca em query string: o fragmento não é enviado ao servidor por navegadores nem aparece em logs de acesso. O front lê `location.hash` uma única vez, limpa o hash com `history.replaceState` e as telas de link (Confirmar e-mail, Redefinir senha, Aceitar convite) só chamam a API **depois de um clique explícito do usuário** — protege contra pré-visualização/antivírus do provedor de e-mail que abre o link sozinho e consumiria o token.
+- **Limites em memória, uma única instância:** `LimiteTentativasService` conta falhas de login por identificador (e-mail/telefone normalizado) em `Map`, complementando o limite por IP do `@nestjs/throttler`. Com mais de uma instância da API, mover para Postgres/Redis (ver `docs/06-seguranca.md`). O fator de multiplicação dos limites (`FATOR_LIMITES`, padrão `1`) é lido a cada verificação — em testes/CI sobe para `100` para não travar suítes que fazem muitas chamadas.
+
+## Notificações e Mailpit
+
+- Interface `EnvioEmail` com adaptador SMTP (`nodemailer`); em dev/teste, `EMAIL_TRANSPORTE=memoria` usa um adaptador que só guarda as mensagens (usado pelos testes) — SMTP real fica atrás da variável `EMAIL_TRANSPORTE=smtp`.
+- **Mailpit** roda via `docker-compose.yml` (`axllent/mailpit`) em `127.0.0.1:1025` (SMTP) e `127.0.0.1:8025` (caixa de entrada web) — abra `http://localhost:8025` para ver os e-mails de confirmação/redefinição/convite enviados em desenvolvimento.
+- Envio sempre **depois do commit** da transação; falha de envio só registra log (sem dados pessoais) e nunca desfaz a operação — o usuário pode pedir reenvio.
 
 ## Portal do cliente (acesso por link)
 

@@ -20,7 +20,7 @@ Documentação de produto e arquitetura em `docs/`; instruções para trabalhar 
 ```bash
 pnpm install
 cp apps/api/.env.example apps/api/.env
-docker compose up -d --wait        # postgres (bancos oficinatrack e oficinatrack_test)
+docker compose up -d --wait        # postgres (bancos oficinatrack e oficinatrack_test) + mailpit (e-mail em dev)
 pnpm --filter @oficinatrack/api prisma:migrate
 pnpm dev                           # shared (watch) + api + web
 pnpm test                          # todos os testes (precisa do postgres rodando)
