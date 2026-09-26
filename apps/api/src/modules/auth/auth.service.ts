@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { normalizarEmail, normalizarTelefone, PERMISSOES_POR_PERFIL, type Login, type RespostaSessao, type UsuarioEu } from '@oficinatrack/shared';
+import { normalizarEmail, normalizarTelefone, PERMISSOES_POR_PERFIL, type Login, type PerfilUsuario, type RespostaSessao, type UsuarioEu } from '@oficinatrack/shared';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { hashSenha, verificarSenha } from '../../common/seguranca/senhas.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
@@ -52,6 +52,12 @@ export class AuthService {
     }
     this.limites.limpar(chave);
     if (!usuario.emailConfirmadoEm) throw new ErroNegocio(403, 'EMAIL_NAO_CONFIRMADO', 'Confirme seu e-mail para entrar');
+    const sessao = await this.tenant.executarComo(usuario.oficinaId, () => this.sessoes.criar(usuario));
+    return { ...sessao, usuarioId: usuario.id, oficinaId: usuario.oficinaId };
+  }
+
+  /** Chamado pelo aceite de convite: cria a primeira sessão do usuário recém-criado. */
+  async criarSessaoConvite(usuario: { id: string; oficinaId: string; perfil: PerfilUsuario }): Promise<Sessao & { usuarioId: string; oficinaId: string }> {
     const sessao = await this.tenant.executarComo(usuario.oficinaId, () => this.sessoes.criar(usuario));
     return { ...sessao, usuarioId: usuario.id, oficinaId: usuario.oficinaId };
   }

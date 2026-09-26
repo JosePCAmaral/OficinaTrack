@@ -10,6 +10,7 @@ import { AuthService } from './auth.service.js';
 import { AutenticacaoGuard } from './autenticacao.guard.js';
 import { CadastroService } from './cadastro.service.js';
 import { CodigosPilotoService } from './codigos-piloto.service.js';
+import { ConvitesPublicoController } from './convites-publico.controller.js';
 import { LimiteTentativasService } from './limite-tentativas.service.js';
 import { PermissaoGuard } from './permissao.guard.js';
 import { SessoesService } from './sessoes.service.js';
@@ -27,7 +28,7 @@ import { TokensUsuarioService } from './tokens-usuario.service.js';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, ConvitesPublicoController],
   providers: [
     AuthService,
     SessoesService,

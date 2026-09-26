@@ -22,6 +22,7 @@ import { AuthService } from './auth.service.js';
 import { CadastroService } from './cadastro.service.js';
 import { COOKIE_REFRESH, definirCookieRefresh, limparCookieRefresh } from './cookie-refresh.js';
 import { Publico, UsuarioAtual, type UsuarioAutenticado } from './decorators.js';
+import { exigirOrigem } from './origem.js';
 import { SessaoConcorrenteError, SessoesService } from './sessoes.service.js';
 
 @Controller('auth')
@@ -56,9 +57,11 @@ export class AuthController {
   @HttpCode(200)
   @Throttle({ default: { limit: limite(10), ttl: 60_000 } })
   async confirmarEmail(
+    @Req() req: Request,
     @Body(new ZodValidationPipe(tokenApenasSchema)) { token }: { token: string },
     @Res({ passthrough: true }) res: Response,
   ): Promise<RespostaSessao> {
+    exigirOrigem(req, this.config.get('CORS_ORIGEM', { infer: true }));
     const sessao = await this.cadastroService.confirmarEmail(token);
     definirCookieRefresh(res, sessao);
     return this.auth.montarResposta(sessao);
@@ -105,7 +108,7 @@ export class AuthController {
   @HttpCode(200)
   @Throttle({ default: { limit: limite(30), ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<RespostaSessao> {
-    this.exigirOrigem(req);
+    exigirOrigem(req, this.config.get('CORS_ORIGEM', { infer: true }));
     const token = req.cookies?.[COOKIE_REFRESH] as string | undefined;
     if (!token) throw new ErroNegocio(401, 'SESSAO_INVALIDA', 'Sua sessão expirou. Entre de novo');
     try {
@@ -123,7 +126,7 @@ export class AuthController {
   @Post('logout')
   @HttpCode(204)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
-    this.exigirOrigem(req);
+    exigirOrigem(req, this.config.get('CORS_ORIGEM', { infer: true }));
     const token = req.cookies?.[COOKIE_REFRESH] as string | undefined;
     if (token) await this.sessoes.revogar(token);
     limparCookieRefresh(res);
@@ -132,12 +135,5 @@ export class AuthController {
   @Get('eu')
   eu(@UsuarioAtual() usuario: UsuarioAutenticado): Promise<UsuarioEu> {
     return this.auth.montarEu(usuario.id);
-  }
-
-  /** Rotas que agem pelo cookie conferem a origem (defesa extra além do SameSite=Strict). */
-  private exigirOrigem(req: Request): void {
-    if (req.headers.origin !== this.config.get('CORS_ORIGEM', { infer: true })) {
-      throw new ErroNegocio(403, 'SEM_PERMISSAO', 'Origem não permitida');
-    }
   }
 }
