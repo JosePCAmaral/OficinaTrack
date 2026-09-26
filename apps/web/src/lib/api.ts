@@ -1,3 +1,5 @@
+import { obterToken, renovarSessao } from './sessao';
+
 export class ErroApi extends Error {
   constructor(
     readonly statusCode: number,
@@ -12,11 +14,17 @@ export class ErroApi extends Error {
 
 type CorpoErro = { code?: string; message?: string; details?: unknown };
 
-export async function api<T>(caminho: string, init?: RequestInit): Promise<T> {
+export async function api<T>(caminho: string, init?: RequestInit, jaRenovou = false): Promise<T> {
   // Content-Type JSON só para corpo string: FormData (upload) precisa do boundary que o navegador define.
   const headers = new Headers(init?.headers);
   if (typeof init?.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const atual = obterToken();
+  if (atual) headers.set('Authorization', `Bearer ${atual}`);
   const resposta = await fetch(`/api/v1${caminho}`, { ...init, credentials: 'include', headers });
+  if (resposta.status === 401 && !jaRenovou && !caminho.startsWith('/auth/')) {
+    const sessao = await renovarSessao();
+    if (sessao) return api<T>(caminho, init, true);
+  }
   const corpo: unknown = resposta.status === 204 ? undefined : await resposta.json().catch(() => undefined);
   if (!resposta.ok) {
     const erro = (corpo ?? {}) as CorpoErro;

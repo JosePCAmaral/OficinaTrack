@@ -1,4 +1,5 @@
 import { api, ErroApi } from './api';
+import { definirToken, obterToken } from './sessao';
 
 describe('api', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -47,5 +48,68 @@ describe('api', () => {
     expect(cabecalhos(1).has('Content-Type')).toBe(false);
     expect(cabecalhos(2).has('Content-Type')).toBe(false);
     expect(cabecalhos(3).get('Content-Type')).toBe('text/plain');
+  });
+});
+
+describe('api com sessão', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    definirToken(null);
+  });
+  const json = (corpo: unknown, status = 200) => new Response(JSON.stringify(corpo), { status });
+
+  it('envia o token de acesso', async () => {
+    definirToken('tok-1');
+    const fetchMock = vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockResolvedValue(json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api('/oficinas/atual');
+    expect(new Headers(fetchMock.mock.calls[0]![1]!.headers).get('Authorization')).toBe('Bearer tok-1');
+  });
+
+  it('em 401 renova uma vez e repete a chamada', async () => {
+    definirToken('velho');
+    const fetchMock = vi
+      .fn<(u: string, i?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(json({ statusCode: 401, code: 'NAO_AUTENTICADO', message: 'x' }, 401))
+      .mockResolvedValueOnce(json({ accessToken: 'novo', usuario: { id: 'u' } }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api('/oficinas/atual')).resolves.toEqual({ ok: true });
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/v1/auth/refresh');
+    expect(new Headers(fetchMock.mock.calls[2]![1]!.headers).get('Authorization')).toBe('Bearer novo');
+  });
+
+  it('duas chamadas com 401 ao mesmo tempo compartilham uma renovação só', async () => {
+    definirToken('velho');
+    let refreshes = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (u: string, i?: RequestInit) => {
+        if (u === '/api/v1/auth/refresh') {
+          refreshes++;
+          return json({ accessToken: 'novo', usuario: { id: 'u' } });
+        }
+        return new Headers(i?.headers).get('Authorization') === 'Bearer novo' ? json({ ok: true }) : json({ code: 'NAO_AUTENTICADO' }, 401);
+      }),
+    );
+    await Promise.all([api('/a'), api('/b')]);
+    expect(refreshes).toBe(1);
+  });
+
+  it('renovação que falha limpa a sessão e relança 401', async () => {
+    vi.useFakeTimers();
+    definirToken('velho');
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<(u: string, i?: RequestInit) => Promise<Response>>()
+        .mockResolvedValue(json({ statusCode: 401, code: 'SESSAO_INVALIDA', message: 'x' }, 401)),
+    );
+    // .catch() é anexado já na criação: evita que o rejeição apareça como "unhandled" enquanto o timer não avança.
+    const chamada = api('/oficinas/atual').catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(await chamada).toMatchObject({ statusCode: 401 });
+    expect(obterToken()).toBeNull();
+    vi.useRealTimers();
   });
 });
