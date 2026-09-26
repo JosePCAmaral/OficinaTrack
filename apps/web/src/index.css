@@ -7,7 +7,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *), @media (prefers-color-scheme: dark));
 
 @theme inline {
     --font-sans: var(--font-sans);

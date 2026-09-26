@@ -79,6 +79,39 @@ describe('api com sessão', () => {
     expect(new Headers(fetchMock.mock.calls[2]![1]!.headers).get('Authorization')).toBe('Bearer novo');
   });
 
+  it('renova também em rotas autenticadas de /auth (ex.: /auth/eu) e repete a chamada', async () => {
+    definirToken('velho');
+    const fetchMock = vi
+      .fn<(u: string, i?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(json({ statusCode: 401, code: 'NAO_AUTENTICADO', message: 'x' }, 401))
+      .mockResolvedValueOnce(json({ accessToken: 'novo', usuario: { id: 'u' } }))
+      .mockResolvedValueOnce(json({ id: 'u', nome: 'Zé' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api('/auth/eu')).resolves.toEqual({ id: 'u', nome: 'Zé' });
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/v1/auth/refresh');
+    expect(new Headers(fetchMock.mock.calls[2]![1]!.headers).get('Authorization')).toBe('Bearer novo');
+  });
+
+  it('renova com sucesso só na segunda tentativa (após 800ms) e repete a chamada original', async () => {
+    vi.useFakeTimers();
+    definirToken('velho');
+    const fetchMock = vi
+      .fn<(u: string, i?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(json({ statusCode: 401, code: 'NAO_AUTENTICADO', message: 'x' }, 401)) // chamada original
+      .mockResolvedValueOnce(json({ statusCode: 401, code: 'SESSAO_INVALIDA', message: 'x' }, 401)) // 1ª tentativa de refresh
+      .mockResolvedValueOnce(json({ accessToken: 'novo', usuario: { id: 'u' } })) // 2ª tentativa, após os 800ms
+      .mockResolvedValueOnce(json({ ok: true })); // chamada original repetida
+    vi.stubGlobal('fetch', fetchMock);
+
+    const chamada = api('/oficinas/atual');
+    await vi.advanceTimersByTimeAsync(800);
+    await expect(chamada).resolves.toEqual({ ok: true });
+
+    const chamadasRefresh = fetchMock.mock.calls.filter((c) => c[0] === '/api/v1/auth/refresh');
+    expect(chamadasRefresh).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
   it('duas chamadas com 401 ao mesmo tempo compartilham uma renovação só', async () => {
     definirToken('velho');
     let refreshes = 0;

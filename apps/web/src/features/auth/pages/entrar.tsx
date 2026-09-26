@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type Login } from '@oficinatrack/shared';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { CampoFormulario } from '@/components/campo-formulario';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { TelaPublica } from '../components/tela-publica';
 import { useAuth } from '../contexto/use-auth';
 
 export function Entrar() {
-  const { entrar } = useAuth();
+  const { estado, entrar } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const estadoDe = (location.state as { de?: string } | null)?.de;
@@ -23,6 +23,10 @@ export function Entrar() {
     handleSubmit,
     formState: { errors },
   } = useForm<Login>({ resolver: zodResolver(loginSchema) });
+
+  if (estado === 'autenticado') {
+    return <Navigate to="/painel" replace />;
+  }
 
   async function aoEnviar(dados: Login) {
     setErroGeral(null);

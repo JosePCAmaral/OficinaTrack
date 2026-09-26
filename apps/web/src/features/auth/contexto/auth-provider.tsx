@@ -2,7 +2,7 @@ import type { Permissao, RespostaSessao, UsuarioEu } from '@oficinatrack/shared'
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { aoMudarSessao, definirToken, renovarSessao } from '@/lib/sessao';
+import { aoMudarSessao, definirToken, obterToken, renovarSessao } from '@/lib/sessao';
 
 export type EstadoAuth = 'carregando' | 'anonimo' | 'autenticado';
 export type ValorAuth = {
@@ -24,8 +24,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let ativo = true;
     void renovarSessao().then((s) => {
       if (!ativo) return;
-      setUsuario(s?.usuario ?? null);
-      setEstado(s ? 'autenticado' : 'anonimo');
+      if (s) {
+        setUsuario(s.usuario);
+        setEstado('autenticado');
+        return;
+      }
+      // Falha na renovação inicial: só vira "anônimo" se não houver token — um login concorrente
+      // (ex.: usuário conseguiu entrar em /entrar antes dessa renovação atrasada terminar) já
+      // resolveu o estado e não deve ser apagado por essa resposta antiga.
+      if (obterToken() === null) {
+        setUsuario(null);
+        setEstado('anonimo');
+      }
     });
     const parar = aoMudarSessao((t) => {
       if (t === null) {

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { senhaSchema } from '@oficinatrack/shared';
+import { aceitarConviteSchema } from '@oficinatrack/shared';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
@@ -16,10 +16,10 @@ import { useAuth } from '../contexto/use-auth';
 import { useSemReferrer } from '../hooks/use-sem-referrer';
 import { useTokenHash } from '../hooks/use-token-hash';
 
-const formSchema = z.object({
+// Mesmo schema do backend, sem o `token` (que vem do hash, não do formulário); `nome` fica
+// obrigatório na tela porque o campo é editável e sempre parte pré-preenchido pelo convite.
+const formSchema = aceitarConviteSchema.omit({ token: true }).extend({
   nome: z.string().trim().min(2, { error: 'Informe seu nome' }).max(120),
-  telefone: z.string().trim().max(20).optional(),
-  senha: senhaSchema,
 });
 type Dados = z.input<typeof formSchema>;
 
@@ -61,7 +61,7 @@ export function Convite() {
         token,
         senha: dados.senha,
         nome: dados.nome,
-        telefone: dados.telefone || undefined,
+        telefone: (dados.telefone as string | undefined) || undefined,
       });
       entrar(resposta);
       navigate('/painel', { replace: true });
