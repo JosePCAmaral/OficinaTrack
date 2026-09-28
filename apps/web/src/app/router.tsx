@@ -10,6 +10,8 @@ import { VerifiqueSeuEmail } from '@/features/auth/pages/verifique-seu-email';
 import { useAuth } from '@/features/auth/contexto/use-auth';
 import { MinhaConta } from '@/features/conta/pages/minha-conta';
 import { Equipe } from '@/features/equipe/pages/equipe';
+import { AbrirOs } from '@/features/os/pages/abrir-os';
+import { OsDetalhe } from '@/features/os/pages/os-detalhe';
 import { Oficina } from '@/features/oficina/pages/oficina';
 import { LayoutPainel } from '@/features/painel/layout-painel';
 import { InicioPainel } from '@/features/painel/pages/inicio-painel';
@@ -44,6 +46,22 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <InicioPainel /> },
+      {
+        path: 'os/nova',
+        element: (
+          <RotaProtegida permissao="OS_GERENCIAR">
+            <AbrirOs />
+          </RotaProtegida>
+        ),
+      },
+      {
+        path: 'os/:id',
+        element: (
+          <RotaProtegida permissao="OS_GERENCIAR">
+            <OsDetalhe />
+          </RotaProtegida>
+        ),
+      },
       {
         path: 'equipe',
         element: (
