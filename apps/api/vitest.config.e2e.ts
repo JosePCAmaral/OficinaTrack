@@ -10,5 +10,8 @@ export default defineConfig({
     include: ['test/**/*.e2e-spec.ts'],
     env: ENV_TESTE,
     globalSetup: ['./test/setup-global.ts'],
+    // Postgres recém-subido + argon2 + 18 arquivos em paralelo estouram os 5 s padrão na partida a frio (CI).
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
   },
 });

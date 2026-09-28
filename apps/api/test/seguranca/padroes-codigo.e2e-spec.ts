@@ -36,7 +36,13 @@ describe('padrões de código que furam o isolamento (T1/T6)', () => {
   // com revisão explícita e filtro manual por oficinaId.
   it('$queryRaw/$executeRaw só nos arquivos revisados', () => {
     expect(
-      violacoes(codigoApi, /\$(queryRaw|executeRaw)\b/, ['apps/api/src/modules/saude/saude.controller.ts']),
+      violacoes(codigoApi, /\$(queryRaw|executeRaw)\b/, [
+        'apps/api/src/modules/saude/saude.controller.ts',
+        // ConvitesService.aceitar: SELECT ... FOR UPDATE trava a linha do criador do convite dentro
+        // da transação de aceite, para uma desativação/rebaixamento simultâneo não passar pela porta
+        // dos fundos. O `WHERE oficinaId = ...` é escrito à mão, já que o SQL cru não passa pela extensão.
+        'apps/api/src/modules/usuarios/convites.service.ts',
+      ]),
     ).toEqual([]);
   });
 

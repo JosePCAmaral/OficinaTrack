@@ -8,7 +8,7 @@ import { hashSenha } from '../../common/seguranca/senhas.js';
 import { gerarToken, hashToken } from '../../common/seguranca/tokens.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
 import type { Env } from '../../config/env.js';
-import { PrismaService } from '../../prisma/prisma.service.js';
+import { PrismaService, type Db, type Tx } from '../../prisma/prisma.service.js';
 import { EnvioEmail } from '../notificacoes/envio-email.js';
 import { modelosEmail } from '../notificacoes/modelos-email.js';
 import { OficinasService } from '../oficinas/oficinas.service.js';
@@ -116,8 +116,13 @@ export class ConvitesService {
     }
     return this.tenant.executarComo(convite.oficinaId, () =>
       this.prisma.db.$transaction(async (tx) => {
-        // quem convidou ainda precisa poder convidar: um DONO desativado ou rebaixado não volta pela porta dos fundos
-        const criador = await tx.usuario.findUnique({ where: { id: convite.criadoPorId }, select: { ativo: true, perfil: true } });
+        // quem convidou ainda precisa poder convidar: um DONO desativado ou rebaixado não volta pela porta dos fundos.
+        // trava a linha do criador até o commit: uma desativação/rebaixamento simultâneo espera o aceite
+        // terminar (ou o aceite espera a desativação e então a vê).
+        const [criador] = await tx.$queryRaw<{ ativo: boolean; perfil: PerfilUsuario }[]>`
+          SELECT "ativo", "perfil" FROM "Usuario"
+          WHERE "id" = ${convite.criadoPorId} AND "oficinaId" = ${convite.oficinaId}
+          FOR UPDATE`;
         if (!criador?.ativo || !temPermissao(criador.perfil, 'EQUIPE_GERENCIAR') || (convite.perfil === 'DONO' && criador.perfil !== 'DONO')) {
           throw tokenInvalido();
         }
@@ -156,7 +161,13 @@ export class ConvitesService {
   }
 
   private async apagarPendentesCriadosPor(oficinaId: string, usuarioId: string): Promise<void> {
-    await this.tenant.executarComo(oficinaId, () => this.prisma.db.convite.deleteMany({ where: { criadoPorId: usuarioId, usadoEm: null } }));
+    await this.tenant.executarComo(oficinaId, () => this.apagarPendentesDe(usuarioId));
+  }
+
+  /** Chamar dentro do contexto da oficina (ou com o `tx` dela). */
+  async apagarPendentesDe(usuarioId: string, db: Db | Tx = this.prisma.db): Promise<number> {
+    const { count } = await db.convite.deleteMany({ where: { criadoPorId: usuarioId, usadoEm: null } });
+    return count;
   }
 
   private async buscarValido(token: string) {

@@ -83,6 +83,19 @@ describe('Senha', () => {
     expect(ctx.emails.enviados.filter((m) => m.para === usuario.email)).toHaveLength(3);
   });
 
+  it('redefinir senha apaga, na mesma transação, os convites pendentes que o usuário criou', async () => {
+    const { usuario: dono } = await criarOficinaComUsuario(ctx);
+    const d = await entrar(ctx, dono.email);
+    const c = await ctx.http.post('/api/v1/convites').set({ Authorization: `Bearer ${d.accessToken}` })
+      .send({ nome: 'Mec', email: `pend-${sufixo()}@teste.local` }).expect(201);
+    await ctx.http.post('/api/v1/auth/esqueci-senha').send({ email: dono.email }).expect(200);
+    await ctx.emails.aguardarPendentes();
+    const token = /#([A-Za-z0-9_-]{43})/.exec(ctx.emails.ultimoPara(dono.email)!.texto)![1]!;
+    await ctx.http.post('/api/v1/auth/redefinir-senha').send({ token, senha: 'nova-senha-do-ze' }).expect(200);
+    const restantes = await ctx.tenant.executarComo(dono.oficinaId, () => ctx.prisma.db.convite.count({ where: { id: c.body.convite.id } }));
+    expect(restantes).toBe(0);
+  });
+
   it('e-mail de usuário inativo não recebe link', async () => {
     const { oficina } = await criarOficinaComUsuario(ctx);
     const inativo = await criarUsuarioNa(ctx, oficina.id, 'FUNCIONARIO', { ativo: false });

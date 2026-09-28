@@ -11,6 +11,7 @@ import { EnvioEmail } from '../notificacoes/envio-email.js';
 import { modelosEmail } from '../notificacoes/modelos-email.js';
 import { SegundoPlano } from '../notificacoes/segundo-plano.js';
 import { OficinasService } from '../oficinas/oficinas.service.js';
+import { ConvitesService } from '../usuarios/convites.service.js';
 import { USUARIO_CREDENCIAIS_ALTERADAS, type UsuarioCredenciaisAlteradas } from '../usuarios/eventos.js';
 import { UsuariosService } from '../usuarios/usuarios.service.js';
 import { naoAutenticado } from './autenticacao.guard.js';
@@ -48,6 +49,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly eventos: EventEmitter2,
     private readonly segundoPlano: SegundoPlano,
+    private readonly convites: ConvitesService,
   ) {}
 
   async login({ identificador, senha }: Login): Promise<Sessao & { usuarioId: string; oficinaId: string }> {
@@ -114,8 +116,8 @@ export class AuthService {
 
   /**
    * Recuperação de conta: senha nova, e-mail confirmado (o link provou a posse), todas as sessões
-   * revogadas e access tokens já emitidos cortados (`sessaoValidaDesde`), numa transação.
-   * Depois, os convites pendentes que o usuário criou são apagados (a conta pode ter sido invadida).
+   * revogadas, access tokens já emitidos cortados (`sessaoValidaDesde`) e os convites pendentes que
+   * o usuário criou apagados (a conta pode ter sido invadida) — tudo na mesma transação.
    */
   async redefinirSenha(token: string, senha: string): Promise<void> {
     const { usuarioId, oficinaId } = await this.tokens.consumir(token, 'REDEFINIR_SENHA');
@@ -125,7 +127,9 @@ export class AuthService {
         await this.usuarios.atualizarSenha(usuarioId, senhaHash, tx);
         await this.usuarios.marcarEmailConfirmado(usuarioId, tx);
         await this.sessoes.revogarTodasDoUsuario(usuarioId, undefined, tx);
+        await this.convites.apagarPendentesDe(usuarioId, tx);
       });
+      // o evento continua sendo emitido: outros ouvintes (auditoria, etc.) dependem dele
       await this.eventos.emitAsync(USUARIO_CREDENCIAIS_ALTERADAS, { oficinaId, usuarioId, motivo: 'SENHA_REDEFINIDA' } satisfies UsuarioCredenciaisAlteradas);
     });
     // quem provou a posse do e-mail volta a poder entrar mesmo com a conta bloqueada por tentativas

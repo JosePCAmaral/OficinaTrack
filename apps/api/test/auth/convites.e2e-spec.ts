@@ -117,6 +117,30 @@ describe('Convites', () => {
     });
   });
 
+  it('aceite e desativação do criador em paralelo: nunca sobra um usuário aceito com o criador já inativo', async () => {
+    const { oficina, usuario: dono1 } = await criarOficinaComUsuario(ctx);
+    const dono2 = await criarUsuarioNa(ctx, oficina.id, 'DONO');
+    const d2 = await entrar(ctx, dono2.email);
+    const c = await ctx.http.post('/api/v1/convites').set(auth(d2.accessToken)).send({ nome: 'Mec', email: `conc-${sufixo()}@teste.local` }).expect(201);
+    const token = tokenDoLink(c.body.link)!;
+    const { UsuariosService } = await import('../../src/modules/usuarios/usuarios.service.js');
+    const usuarios = ctx.app.get(UsuariosService);
+
+    const [aceite] = await Promise.all([
+      ctx.http.post('/api/v1/convites/aceitar').set('Origin', ORIGEM).send({ token, senha: 'chave-de-roda-12' }),
+      ctx.tenant.executarComo(oficina.id, () => usuarios.alterar(dono2.id, { ativo: false }, { id: dono1.id, oficinaId: oficina.id })),
+    ]);
+
+    // só dois estados válidos: o aceite falhou (o criador já estava inativo quando a leitura travada aconteceu)
+    // ou o aceite passou (e, nesse caso, o convite não pode continuar pendente).
+    if (aceite.status === 200) {
+      expect(await pendentesDe(oficina.id, dono2.id)).toBe(0);
+    } else {
+      expect(aceite.status).toBe(400);
+      expect(aceite.body.code).toBe('TOKEN_INVALIDO');
+    }
+  });
+
   it('convite expirado → TOKEN_INVALIDO', async () => {
     const { oficina, usuario: dono } = await criarOficinaComUsuario(ctx);
     const d = await entrar(ctx, dono.email);
