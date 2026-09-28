@@ -4,6 +4,7 @@ import { classificarTermo } from '../../common/busca/classificar-termo.js';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
+import { conflitoEnvolveCampo } from '../../prisma/conflito-unicidade.js';
 import { PrismaService, type Db, type Tx } from '../../prisma/prisma.service.js';
 
 const CAMPOS_RESUMO = { id: true, nome: true, telefone: true } as const;
@@ -69,7 +70,7 @@ export class ClientesService {
       const atualizado = await this.prisma.db.cliente.update({ where: { id }, data: dados, select: CAMPOS_FICHA });
       return paraFicha(atualizado);
     } catch (erro) {
-      if (erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002') throw telefoneJaCadastrado();
+      if (conflitoEnvolveCampo(erro, 'telefone')) throw telefoneJaCadastrado();
       throw erro;
     }
   }

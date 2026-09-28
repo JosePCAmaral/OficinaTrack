@@ -7,6 +7,7 @@ import { hashSenha } from '../../src/common/seguranca/senhas.js';
 import { TenantContext } from '../../src/common/tenant/tenant-context.js';
 import { configurarApp } from '../../src/configurar-app.js';
 import { EnvioEmailMemoria } from '../../src/modules/notificacoes/envio-email-memoria.js';
+import { conflitoEnvolveCampo } from '../../src/prisma/conflito-unicidade.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { telefoneTeste } from '../telefone-teste.js';
 
@@ -14,6 +15,23 @@ export const ORIGEM = 'http://localhost:5173';
 export const SENHA = 'motor-v8-turbo';
 export const sufixo = () => randomBytes(6).toString('hex');
 export const telefone = telefoneTeste;
+
+const MAX_TENTATIVAS_TELEFONE = 3;
+
+/**
+ * `Usuario.telefone` é único no sistema inteiro e o banco de teste nunca é zerado: mesmo com o
+ * espaço cheio de 8 dígitos, uma colisão eventual ainda é possível. Tenta de novo com um telefone
+ * novo quando é isso que colidiu; qualquer outro erro sobe na hora.
+ */
+async function comRetentativaDeTelefone<T>(criar: (telefone: string) => Promise<T>): Promise<T> {
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      return await criar(telefone());
+    } catch (erro) {
+      if (tentativa >= MAX_TENTATIVAS_TELEFONE || !conflitoEnvolveCampo(erro, 'telefone')) throw erro;
+    }
+  }
+}
 
 export type App = { app: INestApplication; http: ReturnType<typeof request>; prisma: PrismaService; tenant: TenantContext; emails: EnvioEmailMemoria };
 
@@ -38,18 +56,20 @@ export async function criarOficinaComUsuario(ctx: App, perfil: 'DONO' | 'FUNCION
 export async function criarUsuarioNa(ctx: App, oficinaId: string, perfil: 'DONO' | 'FUNCIONARIO', extra: { emailConfirmadoEm?: Date | null; ativo?: boolean } = {}) {
   const senhaHash = await hashSenha(SENHA);
   return ctx.tenant.executarComo(oficinaId, () =>
-    ctx.prisma.db.usuario.create({
-      data: {
-        oficinaId,
-        nome: `Usuário ${sufixo()}`,
-        email: `u-${sufixo()}@teste.local`,
-        telefone: telefone(),
-        senhaHash,
-        perfil,
-        emailConfirmadoEm: extra.emailConfirmadoEm === undefined ? new Date() : extra.emailConfirmadoEm,
-        ativo: extra.ativo ?? true,
-      },
-    }),
+    comRetentativaDeTelefone((tel) =>
+      ctx.prisma.db.usuario.create({
+        data: {
+          oficinaId,
+          nome: `Usuário ${sufixo()}`,
+          email: `u-${sufixo()}@teste.local`,
+          telefone: tel,
+          senhaHash,
+          perfil,
+          emailConfirmadoEm: extra.emailConfirmadoEm === undefined ? new Date() : extra.emailConfirmadoEm,
+          ativo: extra.ativo ?? true,
+        },
+      }),
+    ),
   );
 }
 

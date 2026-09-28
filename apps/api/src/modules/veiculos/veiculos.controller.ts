@@ -10,8 +10,9 @@ export class VeiculosController {
   constructor(private readonly veiculos: VeiculosService) {}
 
   // rota estática: precisa vir antes de ':id' para não ser capturada por ela
+  // permissão OS_GERENCIAR: é a checagem do balcão antes de abrir OS (a Tarefa 5 move esta rota)
   @Get('consulta')
-  @ExigePermissao('VEICULOS_GERENCIAR')
+  @ExigePermissao('OS_GERENCIAR')
   async consultar(@Query(new ZodValidationPipe(consultaPlacaSchema)) { placa }: { placa: string }): Promise<ConsultaPlaca> {
     const veiculo = await this.veiculos.buscarFichaPorPlaca(placa);
     if (!veiculo) throw new ErroNegocio(404, 'RECURSO_NAO_ENCONTRADO', 'Veículo não encontrado');

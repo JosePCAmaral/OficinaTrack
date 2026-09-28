@@ -12,7 +12,7 @@ describe('Clientes, veículos e busca', () => {
     const placa = placaUnica(); // ex.: 'QWE1R23'
     await criarVeiculoNa(ctx, oficina.id, cliente.id, placa);
     const { accessToken } = await entrar(ctx, usuario.email);
-    for (const q of [placa.toLowerCase(), `${placa.slice(0, 3)}-${placa.slice(3)}`, ` ${placa} `]) {
+    for (const q of [placa.toLowerCase(), `${placa.slice(0, 3)}-${placa.slice(3)}`, `${placa.slice(0, 3)} ${placa.slice(3)}`, ` ${placa} `]) {
       const r = await ctx.http.get('/api/v1/busca').query({ q }).set(auth(accessToken)).expect(200);
       expect(r.body.veiculos.map((v: { placa: string }) => v.placa)).toEqual([placa]);
     }
@@ -54,6 +54,8 @@ describe('Clientes, veículos e busca', () => {
     expect(buscaPlaca.body.veiculos).toEqual([]);
     const buscaNome = await ctx.http.get('/api/v1/busca').query({ q: 'Cliente B' }).set(auth(accessToken)).expect(200);
     expect(buscaNome.body.clientes).toEqual([]);
+    const buscaTelefone = await ctx.http.get('/api/v1/busca').query({ q: clienteB.telefone }).set(auth(accessToken)).expect(200);
+    expect(buscaTelefone.body.clientes).toEqual([]);
 
     await ctx.http.get(`/api/v1/clientes/${clienteB.id}`).set(auth(accessToken)).expect(404);
     await ctx.http.patch(`/api/v1/clientes/${clienteB.id}`).set(auth(accessToken)).send({ nome: 'Hackeado' }).expect(404);
@@ -87,6 +89,8 @@ describe('Clientes, veículos e busca', () => {
 
     const conflito = await ctx.http.patch(`/api/v1/clientes/${c2.id}`).set(auth(accessToken)).send({ telefone: c1.telefone }).expect(409);
     expect(conflito.body.code).toBe('TELEFONE_JA_CADASTRADO');
+    const intacto = await ctx.tenant.executarComo(oficina.id, () => ctx.prisma.db.cliente.findUnique({ where: { id: c2.id } }));
+    expect(intacto).toMatchObject({ nome: 'Cliente 2', telefone: c2.telefone });
 
     const outra = await criarOficinaComUsuario(ctx);
     const cOutra = await criarClienteNa(ctx, outra.oficina.id, { nome: 'Outro' });
