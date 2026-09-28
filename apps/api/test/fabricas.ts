@@ -1,7 +1,8 @@
 import type { TenantContext } from '../src/common/tenant/tenant-context.js';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
+import { telefoneTeste } from './telefone-teste.js';
 
-const telefoneUnico = () => `+55439${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+const telefoneUnico = telefoneTeste;
 
 export function criarOficina(prisma: PrismaService, tenant: TenantContext, nome = 'Oficina Teste') {
   // sem tenant: a oficina ainda não existe (mesmo caso do cadastro na Sprint 2)

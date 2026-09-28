@@ -12,6 +12,9 @@ import { NotificacoesModule } from './modules/notificacoes/notificacoes.module.j
 import { AuthModule } from './modules/auth/auth.module.js';
 import { OficinasModule } from './modules/oficinas/oficinas.module.js';
 import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
+import { ClientesModule } from './modules/clientes/clientes.module.js';
+import { VeiculosModule } from './modules/veiculos/veiculos.module.js';
+import { BuscaModule } from './modules/busca/busca.module.js';
 
 @Module({
   imports: [
@@ -25,6 +28,9 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
     OficinasModule,
     UsuariosModule,
     AuthModule,
+    ClientesModule,
+    VeiculosModule,
+    BuscaModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

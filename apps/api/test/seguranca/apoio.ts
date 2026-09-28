@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module.js';
 import { TenantContext } from '../../src/common/tenant/tenant-context.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
+import { telefoneTeste } from '../telefone-teste.js';
 
 /**
  * Apoio dos testes de segurança. Cada teste cria as próprias oficinas e registros
@@ -10,7 +11,7 @@ import { PrismaService } from '../../src/prisma/prisma.service.js';
  * de estado global.
  */
 export const sufixo = () => randomBytes(6).toString('hex');
-export const telefone = () => `+55439${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+export const telefone = telefoneTeste;
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 export const placa = () =>
   Array.from({ length: 3 }, () => LETRAS[Math.floor(Math.random() * 26)]).join('') +

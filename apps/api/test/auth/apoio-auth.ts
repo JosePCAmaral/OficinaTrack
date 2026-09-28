@@ -8,11 +8,12 @@ import { TenantContext } from '../../src/common/tenant/tenant-context.js';
 import { configurarApp } from '../../src/configurar-app.js';
 import { EnvioEmailMemoria } from '../../src/modules/notificacoes/envio-email-memoria.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
+import { telefoneTeste } from '../telefone-teste.js';
 
 export const ORIGEM = 'http://localhost:5173';
 export const SENHA = 'motor-v8-turbo';
 export const sufixo = () => randomBytes(6).toString('hex');
-export const telefone = () => `+55439${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+export const telefone = telefoneTeste;
 
 export type App = { app: INestApplication; http: ReturnType<typeof request>; prisma: PrismaService; tenant: TenantContext; emails: EnvioEmailMemoria };
 
