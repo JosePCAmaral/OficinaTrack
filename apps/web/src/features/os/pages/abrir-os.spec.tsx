@@ -173,6 +173,74 @@ describe('AbrirOs', () => {
     ).toBe(false);
   });
 
+  it('D4 respondido inline preserva criarMesmoComOsAberta quando o mesmo envio cai no D1 (dono diferente)', async () => {
+    const corposEnviados: Record<string, unknown>[] = [];
+    const fetchMock = mockFetch({
+      post: (corpo, chamada) => {
+        corposEnviados.push(corpo);
+        if (chamada === 1) {
+          return jsonResposta(
+            {
+              statusCode: 409,
+              code: 'VEICULO_DE_OUTRO_CLIENTE',
+              message: 'Veículo cadastrado com outro cliente',
+              details: { dono: { nome: 'João Antigo', telefoneFinal: '8888' } },
+            },
+            409,
+          );
+        }
+        return jsonResposta({ id: 'os-12', numero: 15 }, 201);
+      },
+      consulta: (placa) => {
+        expect(placa).toBe('ABC1234');
+        return jsonResposta(
+          {
+            veiculo: {
+              id: 'v1',
+              placa: 'ABC1234',
+              marca: 'VW',
+              modelo: 'Gol',
+              anoModelo: 2015,
+              cor: 'Prata',
+              chassi: null,
+              kmAtual: 1000,
+              criadoEm: new Date().toISOString(),
+              cliente: { id: 'c1', nome: 'Maria', telefone: '+5543988887777' },
+            },
+            osAberta: { id: 'os-9', numero: 12, criadoEm: new Date().toISOString() },
+          } satisfies ConsultaPlaca,
+          200,
+        );
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const usuario = userEvent.setup();
+    renderizar(<AbrirOs />, { auth: { estado: 'autenticado', usuario: null, tem: () => false }, rota: '/painel/os/nova' });
+
+    await usuario.type(screen.getByLabelText('Placa'), 'ABC1234');
+    await usuario.tab();
+
+    await usuario.click(await screen.findByRole('button', { name: 'Criar nova mesmo assim' }));
+
+    // Preenche WhatsApp (a consulta já preencheu, mas troca para um número diferente do original) e queixa.
+    const campoTelefone = screen.getByLabelText('WhatsApp do cliente') as HTMLInputElement;
+    await usuario.clear(campoTelefone);
+    await usuario.type(campoTelefone, '43977776666');
+    await usuario.type(screen.getByLabelText('Queixa do cliente'), 'Troca de óleo e revisão');
+    await usuario.click(screen.getByRole('button', { name: 'Abrir OS' }));
+
+    const dialogo = await screen.findByRole('alertdialog');
+    expect(within(dialogo).getByText(/João Antigo/)).toBeInTheDocument();
+
+    await usuario.click(within(dialogo).getByRole('button', { name: /^Sim, passar para/ }));
+
+    await waitFor(() => expect(screen.getByTestId('rota-atual')).toHaveTextContent('/painel/os/os-12'));
+
+    expect(corposEnviados).toHaveLength(2);
+    expect(corposEnviados[0]!.criarMesmoComOsAberta).toBe(true);
+    expect(corposEnviados[1]).toMatchObject({ criarMesmoComOsAberta: true, transferirVeiculo: true });
+  });
+
   it('FUNCIONARIO não carrega a lista da equipe (sem chamada a /usuarios) e vê "Eu"/"Ninguém"', async () => {
     const fetchMock = mockFetch({ post: () => jsonResposta({ id: 'os-z', numero: 1 }, 201) });
     vi.stubGlobal('fetch', fetchMock);

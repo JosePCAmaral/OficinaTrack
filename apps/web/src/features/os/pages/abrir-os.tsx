@@ -117,9 +117,9 @@ export function AbrirOs() {
 
   async function aoEnviar(dadosEntrada: AbrirOsEntrada) {
     setErroGeral(null);
-    const dados = dadosEntrada as unknown as AbrirOs;
+    const dados: AbrirOs = { ...(dadosEntrada as unknown as AbrirOs), criarMesmoComOsAberta: criarMesmoInline || undefined };
     try {
-      const os = await abrirOs.mutateAsync({ ...dados, criarMesmoComOsAberta: criarMesmoInline || undefined });
+      const os = await abrirOs.mutateAsync(dados);
       navigate(`/painel/os/${os.id}`);
     } catch (erro) {
       tratarErroAbrir(erro, dados);
