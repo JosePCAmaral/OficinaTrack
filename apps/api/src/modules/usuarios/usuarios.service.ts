@@ -26,8 +26,9 @@ export class UsuariosService {
     return this.prisma.db.usuario.findUnique({ where: chave.includes('@') ? { email: chave } : { telefone: chave } });
   }
 
-  buscarAtivo(id: string) {
-    return this.prisma.db.usuario.findFirst({ where: { id, ativo: true }, select: CAMPOS_SESSAO });
+  /** `db` opcional: a abertura de OS valida o responsável dentro da própria transação. */
+  buscarAtivo(id: string, db: Db = this.prisma.db) {
+    return db.usuario.findFirst({ where: { id, ativo: true }, select: CAMPOS_SESSAO });
   }
 
   buscarPorId(id: string) {

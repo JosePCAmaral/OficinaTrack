@@ -12,6 +12,7 @@ import { NotificacoesModule } from './modules/notificacoes/notificacoes.module.j
 import { AuthModule } from './modules/auth/auth.module.js';
 import { OficinasModule } from './modules/oficinas/oficinas.module.js';
 import { UsuariosModule } from './modules/usuarios/usuarios.module.js';
+import { OrdensServicoModule } from './modules/ordens-servico/ordens-servico.module.js';
 import { ClientesModule } from './modules/clientes/clientes.module.js';
 import { VeiculosModule } from './modules/veiculos/veiculos.module.js';
 import { BuscaModule } from './modules/busca/busca.module.js';
@@ -28,6 +29,8 @@ import { BuscaModule } from './modules/busca/busca.module.js';
     OficinasModule,
     UsuariosModule,
     AuthModule,
+    // antes de Clientes/Veiculos: `GET /veiculos/consulta` (estática) precisa ser registrada antes de `GET /veiculos/:id`
+    OrdensServicoModule,
     ClientesModule,
     VeiculosModule,
     BuscaModule,

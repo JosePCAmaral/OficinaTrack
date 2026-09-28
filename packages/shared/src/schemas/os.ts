@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { placaSchema, telefoneSchema } from './comuns.js';
+import { paginacaoSchema } from './paginacao.js';
 import { inteiroAnulavel, inteiroOpcional, textoAnulavel, textoOpcional } from './oficina.js';
 
 const KM_MAX = 2_000_000;
@@ -38,3 +39,9 @@ export const novoEventoSchema = z.object({
   texto: z.string().trim().min(1, { error: 'Escreva alguma coisa' }).max(2000),
 });
 export type NovoEvento = z.output<typeof novoEventoSchema>;
+
+/** `GET /ordens-servico`: nesta sprint só existe a situação "abertas" (status fora de ENTREGUE/CANCELADO). */
+export const listarOsSchema = paginacaoSchema.extend({
+  situacao: z.enum(['abertas']).default('abertas'),
+});
+export type ListarOs = z.output<typeof listarOsSchema>;

@@ -22,6 +22,20 @@ export class OficinasService {
     return temPermissao(perfil, 'OFICINA_EDITAR') ? oficina : { ...oficina, documento: null };
   }
 
+  /**
+   * Trava a linha da oficina até o commit (`UPDATE … increment`): aberturas simultâneas esperam
+   * umas pelas outras e recebem números seguidos, sem buraco nem repetição.
+   */
+  async reservarNumeroOS(tx: Tx): Promise<number> {
+    const { id } = await tx.oficina.findFirstOrThrow({ select: { id: true } });
+    const { proximoNumeroOS } = await tx.oficina.update({
+      where: { id },
+      data: { proximoNumeroOS: { increment: 1 } },
+      select: { proximoNumeroOS: true },
+    });
+    return proximoNumeroOS - 1;
+  }
+
   criar(db: Db | Tx, dados: DadosOficinaValidos) {
     return db.oficina.create({ data: { ...dados, termosVersao: VERSAO_TERMOS, termosAceitosEm: new Date() }, select: CAMPOS });
   }

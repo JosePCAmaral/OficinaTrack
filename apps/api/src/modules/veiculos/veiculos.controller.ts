@@ -1,6 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
-import { alterarVeiculoSchema, consultaPlacaSchema, type AlterarVeiculo, type ConsultaPlaca, type FichaVeiculo } from '@oficinatrack/shared';
-import { ErroNegocio } from '../../common/erros/erro-negocio.js';
+import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { alterarVeiculoSchema, type AlterarVeiculo, type FichaVeiculo } from '@oficinatrack/shared';
 import { ZodValidationPipe } from '../../common/validacao/zod-validation.pipe.js';
 import { ExigePermissao } from '../auth/decorators.js';
 import { VeiculosService } from './veiculos.service.js';
@@ -9,17 +8,8 @@ import { VeiculosService } from './veiculos.service.js';
 export class VeiculosController {
   constructor(private readonly veiculos: VeiculosService) {}
 
-  // rota estática: precisa vir antes de ':id' para não ser capturada por ela
-  // permissão OS_GERENCIAR: é a checagem do balcão antes de abrir OS (a Tarefa 5 move esta rota)
-  @Get('consulta')
-  @ExigePermissao('OS_GERENCIAR')
-  async consultar(@Query(new ZodValidationPipe(consultaPlacaSchema)) { placa }: { placa: string }): Promise<ConsultaPlaca> {
-    const veiculo = await this.veiculos.buscarFichaPorPlaca(placa);
-    if (!veiculo) throw new ErroNegocio(404, 'RECURSO_NAO_ENCONTRADO', 'Veículo não encontrado');
-    // a Tarefa 5 completa com a OS em aberto (OrdensServicoService)
-    return { veiculo, osAberta: null };
-  }
-
+  // `GET /veiculos/consulta` fica no OrdensServicoModule (precisa da OS em aberto) e é
+  // registrada antes desta ':id' pela ordem dos módulos no AppModule.
   @Get(':id')
   @ExigePermissao('VEICULOS_GERENCIAR')
   ficha(@Param('id') id: string): Promise<FichaVeiculo> {
