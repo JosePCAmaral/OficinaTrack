@@ -32,6 +32,7 @@ export const alterarOsSchema = z
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), { error: 'Nada para alterar' });
 export type AlterarOs = z.output<typeof alterarOsSchema>;
+export type AlterarOsEntrada = z.input<typeof alterarOsSchema>;
 
 export const TIPOS_EVENTO_PUBLICAVEIS = ['NOTA_INTERNA', 'ATUALIZACAO_CLIENTE'] as const;
 export const novoEventoSchema = z.object({

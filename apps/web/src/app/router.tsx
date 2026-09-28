@@ -11,7 +11,7 @@ import { useAuth } from '@/features/auth/contexto/use-auth';
 import { MinhaConta } from '@/features/conta/pages/minha-conta';
 import { Equipe } from '@/features/equipe/pages/equipe';
 import { AbrirOs } from '@/features/os/pages/abrir-os';
-import { OsDetalhe } from '@/features/os/pages/os-detalhe';
+import { DetalheOs } from '@/features/os/pages/detalhe-os';
 import { Oficina } from '@/features/oficina/pages/oficina';
 import { LayoutPainel } from '@/features/painel/layout-painel';
 import { BuscaEmBreve } from '@/features/painel/pages/busca-em-breve';
@@ -72,7 +72,7 @@ export const router = createBrowserRouter([
             path: 'os/:id',
             element: (
               <RotaProtegida permissao="OS_GERENCIAR">
-                <OsDetalhe />
+                <DetalheOs />
               </RotaProtegida>
             ),
           },
