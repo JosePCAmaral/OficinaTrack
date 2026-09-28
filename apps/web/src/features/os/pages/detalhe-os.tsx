@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/features/auth/contexto/use-auth';
 import { usePermissao } from '@/features/auth/hooks/use-permissao';
+import { ErroApi } from '@/lib/api';
 import { useDetalheOs } from '../api/use-detalhe-os';
 import { useEventosOs } from '../api/use-eventos-os';
 import { AbaEventos, TIPOS_ABA_CLIENTE, TIPOS_ABA_INTERNA } from '../components/aba-eventos';
@@ -21,6 +22,7 @@ export function DetalheOs() {
   const [editando, setEditando] = useState(false);
 
   const itensEventos = eventos.data?.pages.flatMap((pagina) => pagina.itens) ?? [];
+  const osNaoEncontrada = os.error instanceof ErroApi && os.error.statusCode === 404;
 
   return (
     <div className="flex flex-col gap-4 pb-6">
@@ -31,7 +33,18 @@ export function DetalheOs() {
         </div>
       )}
 
-      {os.isError && (
+      {os.isError && osNaoEncontrada && (
+        <Alert variant="destructive">
+          <AlertDescription className="flex w-full items-center justify-between gap-3">
+            OS não encontrada.
+            <Button asChild type="button" variant="outline" className="h-11">
+              <Link to="/painel">Voltar ao início</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {os.isError && !osNaoEncontrada && (
         <Alert variant="destructive">
           <AlertDescription className="flex w-full items-center justify-between gap-3">
             Não foi possível carregar a OS.

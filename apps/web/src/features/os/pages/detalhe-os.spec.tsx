@@ -208,7 +208,7 @@ describe('DetalheOs', () => {
 
   it('"Retirar" pede confirmação, chama o endpoint e o evento aparece riscado sem o botão', async () => {
     const fetchMock = mockFetch(
-      [eventoMock({ id: 'ev-nota', tipo: 'NOTA_INTERNA', texto: 'Anotação por engano', autor: { id: 'u-dono', nome: 'Zé' } })],
+      [eventoMock({ id: 'ev-atualizacao', tipo: 'ATUALIZACAO_CLIENTE', texto: 'Atualização por engano', visivelCliente: true, autor: { id: 'u-dono', nome: 'Zé' } })],
       { usuarioAtual: DONO },
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -216,8 +216,7 @@ describe('DetalheOs', () => {
     renderizarDetalheOs({ usuario: DONO, tem: () => true });
 
     await screen.findByText('#0001');
-    await usuario.click(screen.getByRole('tab', { name: 'Notas internas' }));
-    await screen.findByText('Anotação por engano');
+    await screen.findByText('Atualização por engano');
 
     await usuario.click(screen.getByRole('button', { name: 'Retirar' }));
 
@@ -225,12 +224,12 @@ describe('DetalheOs', () => {
     await usuario.click(within(dialogo).getByRole('button', { name: 'Sim, retirar' }));
 
     await waitFor(() => {
-      const chamada = fetchMock.mock.calls.find(([url]) => (url as string).includes('/eventos/ev-nota/retirar'));
+      const chamada = fetchMock.mock.calls.find(([url]) => (url as string).includes('/eventos/ev-atualizacao/retirar'));
       expect(chamada).toBeDefined();
     });
 
     expect(await screen.findByText(/Retirada por Zé em/)).toBeInTheDocument();
-    expect(screen.getByText('Anotação por engano')).toHaveClass('line-through');
+    expect(screen.getByText('Atualização por engano')).toHaveClass('line-through');
     expect(screen.queryByRole('button', { name: 'Retirar' })).not.toBeInTheDocument();
   });
 
@@ -238,15 +237,14 @@ describe('DetalheOs', () => {
     // FUNCIONARIO sem EQUIPE_GERENCIAR e sem ser o autor: sem botão "Retirar".
     vi.stubGlobal(
       'fetch',
-      mockFetch([eventoMock({ id: 'ev-nota', tipo: 'NOTA_INTERNA', texto: 'Nota do dono', autor: { id: 'u-dono', nome: 'Zé' } })], {
-        usuarioAtual: FUNCIONARIO,
-      }),
+      mockFetch(
+        [eventoMock({ id: 'ev-at', tipo: 'ATUALIZACAO_CLIENTE', texto: 'Atualização do dono', visivelCliente: true, autor: { id: 'u-dono', nome: 'Zé' } })],
+        { usuarioAtual: FUNCIONARIO },
+      ),
     );
-    const usuario1 = userEvent.setup();
     const { unmount } = renderizarDetalheOs({ usuario: FUNCIONARIO, tem: () => false });
     await screen.findByText('#0001');
-    await usuario1.click(screen.getByRole('tab', { name: 'Notas internas' }));
-    await screen.findByText('Nota do dono');
+    await screen.findByText('Atualização do dono');
     expect(screen.queryByRole('button', { name: 'Retirar' })).not.toBeInTheDocument();
     unmount();
     vi.unstubAllGlobals();
@@ -254,15 +252,14 @@ describe('DetalheOs', () => {
     // O próprio autor (mesmo sem EQUIPE_GERENCIAR): botão "Retirar" aparece.
     vi.stubGlobal(
       'fetch',
-      mockFetch([eventoMock({ id: 'ev-nota', tipo: 'NOTA_INTERNA', texto: 'Nota do Zeca', autor: { id: 'u-func', nome: 'Zeca' } })], {
-        usuarioAtual: FUNCIONARIO,
-      }),
+      mockFetch(
+        [eventoMock({ id: 'ev-at', tipo: 'ATUALIZACAO_CLIENTE', texto: 'Atualização do Zeca', visivelCliente: true, autor: { id: 'u-func', nome: 'Zeca' } })],
+        { usuarioAtual: FUNCIONARIO },
+      ),
     );
-    const usuario2 = userEvent.setup();
     const { unmount: unmount2 } = renderizarDetalheOs({ usuario: FUNCIONARIO, tem: () => false });
     await screen.findByText('#0001');
-    await usuario2.click(screen.getByRole('tab', { name: 'Notas internas' }));
-    await screen.findByText('Nota do Zeca');
+    await screen.findByText('Atualização do Zeca');
     expect(screen.getByRole('button', { name: 'Retirar' })).toBeInTheDocument();
     unmount2();
     vi.unstubAllGlobals();
@@ -270,16 +267,32 @@ describe('DetalheOs', () => {
     // Não é o autor, mas tem EQUIPE_GERENCIAR: botão "Retirar" aparece.
     vi.stubGlobal(
       'fetch',
-      mockFetch([eventoMock({ id: 'ev-nota', tipo: 'NOTA_INTERNA', texto: 'Nota do Zeca', autor: { id: 'u-func', nome: 'Zeca' } })], {
+      mockFetch(
+        [eventoMock({ id: 'ev-at', tipo: 'ATUALIZACAO_CLIENTE', texto: 'Atualização do Zeca', visivelCliente: true, autor: { id: 'u-func', nome: 'Zeca' } })],
+        { usuarioAtual: DONO },
+      ),
+    );
+    renderizarDetalheOs({ usuario: DONO, tem: (p) => p === 'EQUIPE_GERENCIAR' });
+    await screen.findByText('#0001');
+    await screen.findByText('Atualização do Zeca');
+    expect(screen.getByRole('button', { name: 'Retirar' })).toBeInTheDocument();
+  });
+
+  it('"Retirar" não aparece em NOTA_INTERNA, mesmo para o autor (só a API permite retirar ATUALIZACAO_CLIENTE)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch([eventoMock({ id: 'ev-nota', tipo: 'NOTA_INTERNA', texto: 'Nota do próprio dono', autor: { id: 'u-dono', nome: 'Zé' } })], {
         usuarioAtual: DONO,
       }),
     );
-    const usuario3 = userEvent.setup();
-    renderizarDetalheOs({ usuario: DONO, tem: (p) => p === 'EQUIPE_GERENCIAR' });
+    const usuario = userEvent.setup();
+    renderizarDetalheOs({ usuario: DONO, tem: () => true });
+
     await screen.findByText('#0001');
-    await usuario3.click(screen.getByRole('tab', { name: 'Notas internas' }));
-    await screen.findByText('Nota do Zeca');
-    expect(screen.getByRole('button', { name: 'Retirar' })).toBeInTheDocument();
+    await usuario.click(screen.getByRole('tab', { name: 'Notas internas' }));
+
+    expect(await screen.findByText('Nota do próprio dono')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retirar' })).not.toBeInTheDocument();
   });
 
   it('carregando mostra skeleton e erro mostra "Tentar de novo" (h-11)', async () => {
@@ -302,5 +315,21 @@ describe('DetalheOs', () => {
     await usuario.click(botao);
 
     expect(await screen.findByText('#0001')).toBeInTheDocument();
+  });
+
+  it('OS inexistente (404) mostra "OS não encontrada" com "Voltar ao início", sem "Tentar de novo"', async () => {
+    const fetchMock = vi.fn<(u: string) => Promise<Response>>().mockImplementation(async (url) => {
+      if (url.endsWith('/ordens-servico/os-1')) {
+        return jsonResposta({ statusCode: 404, code: 'OS_NAO_ENCONTRADA', message: 'OS não encontrada' }, 404);
+      }
+      return jsonResposta({ itens: [], proximoCursor: null } satisfies Pagina<EventoOSDto>);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderizarDetalheOs({ usuario: DONO, tem: () => true });
+
+    expect(await screen.findByText('OS não encontrada.')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Voltar ao início' });
+    expect(link).toHaveAttribute('href', '/painel');
+    expect(screen.queryByRole('button', { name: 'Tentar de novo' })).not.toBeInTheDocument();
   });
 });

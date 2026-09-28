@@ -106,10 +106,12 @@ export function AbaEventos({
         ) : (
           <ul className="flex flex-col gap-2">
             {itens.map((evento) => {
+              // A API só permite retirar ATUALIZACAO_CLIENTE (422 EVENTO_NAO_RETIRAVEL para os demais);
+              // D3 é sobre tirar uma atualização do portal do cliente, não sobre notas internas.
               const podeRetirar =
                 !evento.retiradoEm &&
                 !!evento.autor &&
-                (evento.tipo === 'NOTA_INTERNA' || evento.tipo === 'ATUALIZACAO_CLIENTE') &&
+                evento.tipo === 'ATUALIZACAO_CLIENTE' &&
                 (evento.autor.id === usuarioId || podeGerenciarEquipe);
               const mostrarWhatsapp = evento.tipo === 'ATUALIZACAO_CLIENTE' && !evento.retiradoEm && !!evento.texto;
               const linkWhatsappItem = mostrarWhatsapp
