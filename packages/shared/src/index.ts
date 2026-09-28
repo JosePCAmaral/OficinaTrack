@@ -9,3 +9,8 @@ export * from './schemas/auth.js';
 export * from './schemas/oficina.js';
 export * from './schemas/equipe.js';
 export * from './tipos-auth.js';
+export * from './os.js';
+export * from './schemas/paginacao.js';
+export * from './schemas/os.js';
+export * from './schemas/clientes-veiculos.js';
+export * from './tipos-os.js';

@@ -18,7 +18,10 @@ export type StatusOS = z.infer<typeof StatusOS>;
 export const TipoEvento = z.enum([
   'OS_ABERTA',
   'STATUS_ALTERADO',
-  'COMENTARIO',
+  'COMENTARIO', // obsoleto desde a Sprint 3: não usar (mantido porque há registros antigos)
+  'NOTA_INTERNA',
+  'ATUALIZACAO_CLIENTE',
+  'VEICULO_TRANSFERIDO',
   'FOTO',
   'ORCAMENTO_ENVIADO',
   'ORCAMENTO_RESPONDIDO',

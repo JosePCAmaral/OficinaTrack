@@ -16,6 +16,18 @@ export const textoOpcional = (max: number) =>
     .optional()
     .transform((v) => (v ? v : undefined));
 
+const vazioVira = <T>(valor: T) => (v: unknown) => (v === '' ? valor : v);
+
+/** Para PATCH: '' limpa o campo (null); ausente não mexe. */
+export const textoAnulavel = (max: number) =>
+  z.preprocess(vazioVira(null), z.string().trim().max(max).nullable().optional());
+
+const paraNumero = (v: unknown) => (typeof v === 'string' ? Number(v) : v);
+export const inteiroOpcional = (min: number, max: number) =>
+  z.preprocess((v) => (v === '' || v === null ? undefined : paraNumero(v)), z.number().int().min(min).max(max).optional());
+export const inteiroAnulavel = (min: number, max: number) =>
+  z.preprocess((v) => (v === '' ? null : paraNumero(v)), z.number().int().min(min).max(max).nullable().optional());
+
 export const documentoSchema = z
   .string()
   .max(20)
