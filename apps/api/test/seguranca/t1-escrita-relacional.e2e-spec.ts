@@ -117,7 +117,7 @@ describe('T1: escrita por relação não atravessa oficinas', () => {
       });
       return ctx.prisma.db.eventoOS
         .create({
-          data: { oficinaId: A.oficina.id, ordemServicoId: os.id, tipo: 'COMENTARIO', autorId: B.usuario.id },
+          data: { oficinaId: A.oficina.id, ordemServicoId: os.id, tipo: 'NOTA_INTERNA', autorId: B.usuario.id },
         })
         .catch(() => null);
     });

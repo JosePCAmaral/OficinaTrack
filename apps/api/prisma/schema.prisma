@@ -27,7 +27,10 @@ enum StatusOS {
 enum TipoEvento {
   OS_ABERTA
   STATUS_ALTERADO
-  COMENTARIO
+  COMENTARIO /// obsoleto desde a Sprint 3: não usar (registros antigos)
+  NOTA_INTERNA
+  ATUALIZACAO_CLIENTE
+  VEICULO_TRANSFERIDO
   FOTO
   ORCAMENTO_ENVIADO
   ORCAMENTO_RESPONDIDO
@@ -104,11 +107,12 @@ model Usuario {
   criadoEm          DateTime      @default(now())
   atualizadoEm      DateTime      @updatedAt
 
-  refreshTokens   RefreshToken[]
-  convitesCriados Convite[]
-  osResponsavel   OrdemServico[] @relation("ResponsavelOS")
-  eventos         EventoOS[]
-  tokens          TokenUsuario[]
+  refreshTokens    RefreshToken[]
+  convitesCriados  Convite[]
+  osResponsavel    OrdemServico[] @relation("ResponsavelOS")
+  eventos          EventoOS[]     @relation("EventoAutor")
+  eventosRetirados EventoOS[]     @relation("EventoRetiradoPor")
+  tokens           TokenUsuario[]
 
   @@unique([oficinaId, id])
 }
@@ -248,12 +252,15 @@ model EventoOS {
   ordemServicoId String
   ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   autorId        String? // null = cliente/sistema
-  autor          Usuario?     @relation(fields: [oficinaId, autorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
+  autor          Usuario?     @relation("EventoAutor", fields: [oficinaId, autorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   tipo           TipoEvento
   texto          String?
   statusDe       StatusOS?
   statusPara     StatusOS?
   visivelCliente Boolean      @default(true)
+  retiradoEm     DateTime? // atualização retirada do portal (nunca apagada)
+  retiradoPorId  String?
+  retiradoPor    Usuario?     @relation("EventoRetiradoPor", fields: [oficinaId, retiradoPorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   criadoEm       DateTime     @default(now())
 
   fotos Foto[]

@@ -36,6 +36,7 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
     convitesCriados: 'Convite',
     osResponsavel: 'OrdemServico',
     eventos: 'EventoOS',
+    eventosRetirados: 'EventoOS',
     tokens: 'TokenUsuario',
   },
   RefreshToken: { oficina: 'Oficina', usuario: 'Usuario' },
@@ -53,7 +54,7 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
     fotos: 'Foto',
   },
   ChecklistEntrada: { oficina: 'Oficina', ordemServico: 'OrdemServico' },
-  EventoOS: { oficina: 'Oficina', ordemServico: 'OrdemServico', autor: 'Usuario', fotos: 'Foto' },
+  EventoOS: { oficina: 'Oficina', ordemServico: 'OrdemServico', autor: 'Usuario', retiradoPor: 'Usuario', fotos: 'Foto' },
   Foto: { oficina: 'Oficina', ordemServico: 'OrdemServico', evento: 'EventoOS' },
   Orcamento: { oficina: 'Oficina', ordemServico: 'OrdemServico', itens: 'ItemOrcamento' },
   ItemOrcamento: { oficina: 'Oficina', orcamento: 'Orcamento' },
@@ -69,7 +70,7 @@ export const RELACOES_TENANT: Readonly<Record<string, Readonly<Record<string, st
  */
 export const CRIACAO_ANINHADA_PERMITIDA: Readonly<Record<string, ReadonlySet<string>>> = {
   Oficina: new Set(),
-  Usuario: new Set(['refreshTokens', 'convitesCriados', 'osResponsavel', 'eventos', 'tokens']),
+  Usuario: new Set(['refreshTokens', 'convitesCriados', 'osResponsavel', 'eventos', 'eventosRetirados', 'tokens']),
   RefreshToken: new Set(),
   Convite: new Set(),
   Cliente: new Set(['veiculos', 'ordensServico', 'acessos']),

@@ -58,7 +58,7 @@ describe('FK composta impede referência entre oficinas', () => {
       data: { oficinaId: oficina.id, numero: 1, veiculoId: veiculo.id, clienteId: cliente.id, relatoCliente: 'teste' },
     });
     const evento = await prisma.db.eventoOS.create({
-      data: { oficinaId: oficina.id, ordemServicoId: os.id, tipo: 'COMENTARIO' },
+      data: { oficinaId: oficina.id, ordemServicoId: os.id, tipo: 'NOTA_INTERNA' },
     });
     return { oficina, usuario, cliente, os, evento };
   };
@@ -84,7 +84,23 @@ describe('FK composta impede referência entre oficinas', () => {
       await expect(
         semTenant(() =>
           prisma.db.eventoOS.create({
-            data: { oficinaId: a.oficina.id, ordemServicoId: a.os.id, tipo: 'COMENTARIO', autorId: b.usuario.id },
+            data: { oficinaId: a.oficina.id, ordemServicoId: a.os.id, tipo: 'NOTA_INTERNA', autorId: b.usuario.id },
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'P2003' });
+    });
+
+    it('EventoOS.retiradoPor não aceita usuário de outra oficina (P2003)', async () => {
+      const { a, b } = await montar();
+      await expect(
+        semTenant(() =>
+          prisma.db.eventoOS.create({
+            data: {
+              oficinaId: a.oficina.id,
+              ordemServicoId: a.os.id,
+              tipo: 'ATUALIZACAO_CLIENTE',
+              retiradoPorId: b.usuario.id,
+            },
           }),
         ),
       ).rejects.toMatchObject({ code: 'P2003' });

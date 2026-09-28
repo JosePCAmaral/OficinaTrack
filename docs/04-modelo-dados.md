@@ -21,7 +21,9 @@
 17. **Escrita por relação é proibida pela extensão de tenant**: services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. Ver `docs/03-arquitetura.md` (Multi-tenancy) e `apps/api/src/prisma/relacoes-tenant.ts`.
 18. **`Usuario.email` é obrigatório e único** (migração `contas_e_acesso`, Sprint 2); `emailConfirmadoEm` marca quando o e-mail foi confirmado pelo link (fluxo de conta). `Convite.email` também passa a ser obrigatório. Nenhuma migração preenche e-mail sozinha: um bloco `DO $$ ... RAISE EXCEPTION` falha alto se houver linha nula antes do `SET NOT NULL`.
 19. **`TokenUsuario`** (tenant): tokens de uso único para confirmar e-mail ou redefinir senha (`TipoTokenUsuario`), com `tokenHash` (SHA-256) e FK composta `(oficinaId, usuarioId) → Usuario`, mesmo padrão de `RefreshToken`. `RefreshToken.substituidoEm` marca a rotação (token trocado por outro da mesma família), diferente de `revogadoEm` (revogação por reuso/logout/desativação).
-20. **`CodigoPiloto` é o primeiro model global do schema** (sem `oficinaId` obrigatório): códigos que o administrador gera para liberar o cadastro de uma oficina no piloto. `oficinaId` é opcional e `@unique` — marca qual oficina já usou aquele código, não filtra por tenant. Fora de `MODELOS_COM_TENANT` e de `RELACOES_TENANT`/`CRIACAO_ANINHADA_PERMITIDA` como chave própria (a extensão de tenant não intercepta suas operações: `campoTenant('CodigoPiloto')` devolve `null`); aparece só como ALVO da relação `Oficina.codigoPiloto`. Acesso sempre dentro de `tenant.executarSemTenant(...)`, comentado, como qualquer busca sem oficina no contexto.
+20. **`TipoEvento` ganha três valores na Sprint 3** (migração `eventos_os_sprint3`): `NOTA_INTERNA` (anotação interna, nunca visível ao cliente — substitui `COMENTARIO` para uso novo), `ATUALIZACAO_CLIENTE` (mensagem visível ao cliente) e `VEICULO_TRANSFERIDO`. `COMENTARIO` continua no enum, marcado `/// obsoleto desde a Sprint 3: não usar` — removê-lo quebraria os registros já gravados no banco de teste (nunca zerado) e em produção; nenhum código novo grava esse valor, e o schema Zod de entrada da API só aceita `NOTA_INTERNA`/`ATUALIZACAO_CLIENTE`. `NOTA_INTERNA` e `VEICULO_TRANSFERIDO` são sempre `visivelCliente = false`; `ATUALIZACAO_CLIENTE` e `OS_ABERTA`, sempre `true`.
+21. **`EventoOS.retiradoEm`/`retiradoPorId`/`retiradoPor`** (migração `eventos_os_sprint3`): uma atualização enviada ao cliente pode ser "retirada" do portal sem apagar a linha (auditoria); `retiradoEm` marca quando, `retiradoPor` (FK composta `(oficinaId, retiradoPorId) → Usuario(oficinaId, id)`, `onDelete: NoAction`, `onUpdate: Restrict`, mesmo padrão de `autor`) marca quem. Um evento retirado nunca volta a ficar visível. Como `EventoOS` passou a ter duas relações com `Usuario` (`autor` e `retiradoPor`), ambas precisam de nome: `@relation("EventoAutor", ...)` e `@relation("EventoRetiradoPor", ...)`; em `Usuario`, `eventos EventoOS[] @relation("EventoAutor")` e `eventosRetirados EventoOS[] @relation("EventoRetiradoPor")`.
+22. **`CodigoPiloto` é o primeiro model global do schema** (sem `oficinaId` obrigatório): códigos que o administrador gera para liberar o cadastro de uma oficina no piloto. `oficinaId` é opcional e `@unique` — marca qual oficina já usou aquele código, não filtra por tenant. Fora de `MODELOS_COM_TENANT` e de `RELACOES_TENANT`/`CRIACAO_ANINHADA_PERMITIDA` como chave própria (a extensão de tenant não intercepta suas operações: `campoTenant('CodigoPiloto')` devolve `null`); aparece só como ALVO da relação `Oficina.codigoPiloto`. Acesso sempre dentro de `tenant.executarSemTenant(...)`, comentado, como qualquer busca sem oficina no contexto.
 
 ## Diagrama (resumo)
 
@@ -35,6 +37,8 @@ Oficina 1─* OrdemServico *─1 Veiculo
                          *─0..1 Usuario (responsavel, FK composta)
 OrdemServico 1─1 ChecklistEntrada
 OrdemServico 1─* EventoOS 1─* Foto
+                  EventoOS *─0..1 Usuario (autor, FK composta)
+                  EventoOS *─0..1 Usuario (retiradoPor, FK composta)
 OrdemServico 1─* Orcamento 1─* ItemOrcamento
 Cliente 1─* AcessoCliente
 Oficina 0..1─0..1 CodigoPiloto (global, sem oficinaId obrigatório)
@@ -72,7 +76,10 @@ enum StatusOS {
 enum TipoEvento {
   OS_ABERTA
   STATUS_ALTERADO
-  COMENTARIO
+  COMENTARIO /// obsoleto desde a Sprint 3: não usar (registros antigos)
+  NOTA_INTERNA
+  ATUALIZACAO_CLIENTE
+  VEICULO_TRANSFERIDO
   FOTO
   ORCAMENTO_ENVIADO
   ORCAMENTO_RESPONDIDO
@@ -149,11 +156,12 @@ model Usuario {
   criadoEm          DateTime      @default(now())
   atualizadoEm      DateTime      @updatedAt
 
-  refreshTokens   RefreshToken[]
-  convitesCriados Convite[]
-  osResponsavel   OrdemServico[] @relation("ResponsavelOS")
-  eventos         EventoOS[]
-  tokens          TokenUsuario[]
+  refreshTokens    RefreshToken[]
+  convitesCriados  Convite[]
+  osResponsavel    OrdemServico[] @relation("ResponsavelOS")
+  eventos          EventoOS[]     @relation("EventoAutor")
+  eventosRetirados EventoOS[]     @relation("EventoRetiradoPor")
+  tokens           TokenUsuario[]
 
   @@unique([oficinaId, id])
 }
@@ -293,12 +301,15 @@ model EventoOS {
   ordemServicoId String
   ordemServico   OrdemServico @relation(fields: [oficinaId, ordemServicoId], references: [oficinaId, id], onDelete: Cascade, onUpdate: Restrict)
   autorId        String? // null = cliente/sistema
-  autor          Usuario?     @relation(fields: [oficinaId, autorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
+  autor          Usuario?     @relation("EventoAutor", fields: [oficinaId, autorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   tipo           TipoEvento
   texto          String?
   statusDe       StatusOS?
   statusPara     StatusOS?
   visivelCliente Boolean      @default(true)
+  retiradoEm     DateTime? // atualização retirada do portal (nunca apagada)
+  retiradoPorId  String?
+  retiradoPor    Usuario?     @relation("EventoRetiradoPor", fields: [oficinaId, retiradoPorId], references: [oficinaId, id], onDelete: NoAction, onUpdate: Restrict)
   criadoEm       DateTime     @default(now())
 
   fotos Foto[]
@@ -434,6 +445,15 @@ model CodigoPiloto {
 - **`Usuario.sessaoValidaDesde DateTime?`** (nova coluna, nula): corte de sessão. O guard recusa todo access token emitido antes desse instante (claim `emitidoEmMs`, com fallback para o `iat` em segundos). Gravado ao redefinir a senha, ao trocar a senha e ao desativar o usuário. Nula = nenhum corte. Não sai em nenhuma resposta da API (só o guard lê, via `UsuariosService.buscarAtivo`).
 - **`Convite.reenvios Int @default(0)`** (nova coluna): quantas vezes o convite foi reenviado. `POST /convites/:id/reenviar` incrementa no mesmo `updateMany` que confere `reenvios < 3`; acima disso, `429 MUITAS_TENTATIVAS`. Convites existentes começam em 0.
 - Só `ADD COLUMN` (sem reescrever dados nem mexer em FKs/triggers); gerada com `prisma migrate diff`.
+
+## Migração `eventos_os_sprint3` (Sprint 3, Tarefa 3)
+
+- **`TipoEvento`**: `ALTER TYPE ... ADD VALUE` para `NOTA_INTERNA`, `ATUALIZACAO_CLIENTE` e `VEICULO_TRANSFERIDO`. Cada `ADD VALUE` é uma instrução própria, sem nada que use os valores novos na mesma migração (Postgres não permite usar um valor de enum recém-criado na mesma transação em que ele foi adicionado). `COMENTARIO` permanece no enum, sem uso novo (ver Decisão 20).
+- **`EventoOS.retiradoEm DateTime?` e `EventoOS.retiradoPorId String?`** (novas colunas) + FK composta `EventoOS_oficinaId_retiradoPorId_fkey` `(oficinaId, retiradoPorId) → Usuario(oficinaId, id)`, `ON DELETE NO ACTION`, `ON UPDATE RESTRICT` — mesmo padrão de `autor` (Decisão 11). Sem trigger novo: `EventoOS` já tinha `EventoOS_oficina_imutavel` da migração `fks_tenant_restritas`, que cobre a tabela inteira.
+- **`autor` e `retiradoPor` passam a ter nome de relação** (`@relation("EventoAutor", ...)` / `@relation("EventoRetiradoPor", ...)`), exigido pelo Prisma sempre que duas relações ligam os dois mesmos models; `Usuario.eventos` ganha `@relation("EventoAutor")` e `Usuario.eventosRetirados EventoOS[] @relation("EventoRetiradoPor")` é a relação inversa nova. Nenhuma coluna mudou de nome nem de tipo por causa disso — é só a marcação de qual FK cada lado representa.
+- **`relacoes-tenant.ts`**: `EventoOS.retiradoPor: 'Usuario'` e `Usuario.eventosRetirados: 'EventoOS'` em `RELACOES_TENANT`. **Desvio consciente em relação ao rascunho da tarefa:** o rascunho previa "sem criação aninhada permitida para `eventosRetirados`", mas o teste de sincronia de `extensao-tenant.spec.ts` (`'create aninhado só nas relações cujo filho usa FK composta'`) deriva `CRIACAO_ANINHADA_PERMITIDA` estruturalmente a partir do schema — qualquer relação cujo lado referenciador use `fields: [oficinaId, xId]` é considerada elegível, sem olhar `onDelete`/semântica de uso. Como `retiradoPor` usa a mesma FK composta que `autor` (já elegível hoje via `eventos`), o teste exige `eventosRetirados` em `CRIACAO_ANINHADA_PERMITIDA['Usuario']` para continuar batendo com o schema; foi adicionado. Na prática nenhum service cria `EventoOS` aninhado a partir de `Usuario` por essa relação — a permissão é só estrutural (mesmo precedente seguido na migração `contas_e_acesso`, Decisão 18/19, para `codigoPiloto` fora do mapa).
+- Testes atualizados: `test/tenant/fk-composta.e2e-spec.ts` e `test/seguranca/t1-escrita-relacional.e2e-spec.ts` trocam `tipo: 'COMENTARIO'` por `tipo: 'NOTA_INTERNA'` nos eventos que criam só para satisfazer a FK (não testam o tipo em si); `fk-composta.e2e-spec.ts` ganha o teste `'EventoOS.retiradoPor não aceita usuário de outra oficina (P2003)'`, no mesmo padrão do teste de `autorId`.
+- Gerada com `prisma migrate diff --from-config-datasource --to-schema ./prisma/schema.prisma --script` (a flag mudou de `--to-schema-datamodel` para `--to-schema` no Prisma 7.10) e aplicada com `prisma migrate dev` sem pedido de reset.
 
 ## Desvios do rascunho original (Tarefa 4, Sprint 1)
 
