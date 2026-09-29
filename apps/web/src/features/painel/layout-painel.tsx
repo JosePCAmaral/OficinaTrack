@@ -23,6 +23,9 @@ function ItensMenu({ aoNavegar }: { aoNavegar?: () => void }) {
       <NavLink to="/painel" end onClick={aoNavegar} className={itemClasse}>
         Pátio
       </NavLink>
+      <NavLink to="/painel/busca" onClick={aoNavegar} className={itemClasse}>
+        Buscar
+      </NavLink>
       {podeGerenciarEquipe && (
         <NavLink to="/painel/equipe" onClick={aoNavegar} className={itemClasse}>
           Equipe

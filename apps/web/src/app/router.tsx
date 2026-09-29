@@ -8,14 +8,16 @@ import { EsqueciSenha } from '@/features/auth/pages/esqueci-senha';
 import { RedefinirSenha } from '@/features/auth/pages/redefinir-senha';
 import { VerifiqueSeuEmail } from '@/features/auth/pages/verifique-seu-email';
 import { useAuth } from '@/features/auth/contexto/use-auth';
+import { Busca } from '@/features/busca/pages/busca';
+import { FichaCliente } from '@/features/clientes/pages/ficha-cliente';
 import { MinhaConta } from '@/features/conta/pages/minha-conta';
 import { Equipe } from '@/features/equipe/pages/equipe';
 import { AbrirOs } from '@/features/os/pages/abrir-os';
 import { DetalheOs } from '@/features/os/pages/detalhe-os';
 import { Oficina } from '@/features/oficina/pages/oficina';
 import { LayoutPainel } from '@/features/painel/layout-painel';
-import { BuscaEmBreve } from '@/features/painel/pages/busca-em-breve';
 import { InicioPainel } from '@/features/painel/pages/inicio-painel';
+import { FichaVeiculo } from '@/features/veiculos/pages/ficha-veiculo';
 import { ErroRota } from './erro-rota';
 import { PaginaNaoEncontrada } from './pagina-nao-encontrada';
 
@@ -58,7 +60,27 @@ export const router = createBrowserRouter([
           { index: true, element: <InicioPainel /> },
           {
             path: 'busca',
-            element: <BuscaEmBreve />,
+            element: (
+              <RotaProtegida permissao="CLIENTES_GERENCIAR">
+                <Busca />
+              </RotaProtegida>
+            ),
+          },
+          {
+            path: 'clientes/:id',
+            element: (
+              <RotaProtegida permissao="CLIENTES_GERENCIAR">
+                <FichaCliente />
+              </RotaProtegida>
+            ),
+          },
+          {
+            path: 'veiculos/:id',
+            element: (
+              <RotaProtegida permissao="VEICULOS_GERENCIAR">
+                <FichaVeiculo />
+              </RotaProtegida>
+            ),
           },
           {
             path: 'os/nova',

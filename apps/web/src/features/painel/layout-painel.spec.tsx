@@ -18,6 +18,7 @@ describe('LayoutPainel', () => {
     });
 
     expect(screen.getAllByText('Pátio').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Buscar').length).toBeGreaterThan(0);
     expect(screen.queryByText('Equipe')).not.toBeInTheDocument();
     expect(screen.queryByText('Oficina')).not.toBeInTheDocument();
     expect(screen.getAllByText('Minha conta').length).toBeGreaterThan(0);
@@ -32,6 +33,7 @@ describe('LayoutPainel', () => {
       },
     });
 
+    expect(screen.getAllByText('Buscar').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Equipe').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Oficina').length).toBeGreaterThan(0);
   });
