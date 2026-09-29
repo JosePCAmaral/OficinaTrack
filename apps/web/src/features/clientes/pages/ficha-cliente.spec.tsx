@@ -94,6 +94,76 @@ describe('FichaCliente', () => {
     expect(await screen.findByText('Maria S. Silva')).toBeInTheDocument();
   });
 
+  it('editar com sucesso invalida o histórico de OS (CartaoOS usa o nome do cliente do cache antigo)', async () => {
+    const usuario = userEvent.setup();
+    let chamadasHistorico = 0;
+    const fetchMock = vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(async (url, init) => {
+      const metodo = init?.method ?? 'GET';
+      if (url.endsWith('/clientes/c1') && metodo === 'GET') return jsonResposta(fichaMock());
+      if (url.endsWith('/clientes/c1') && metodo === 'PATCH') {
+        const corpo = JSON.parse(init!.body as string) as Record<string, unknown>;
+        return jsonResposta(fichaMock({ nome: corpo.nome as string }));
+      }
+      if (url.includes('/clientes/c1/ordens-servico')) {
+        chamadasHistorico += 1;
+        return jsonResposta({ itens: [], proximoCursor: null } satisfies Pagina<ResumoOS>);
+      }
+      return jsonResposta({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderizar(
+      <Routes>
+        <Route path="/painel/clientes/:id" element={<FichaCliente />} />
+      </Routes>,
+      { auth: { estado: 'autenticado', usuario: null, tem: () => true }, rota: '/painel/clientes/c1' },
+    );
+
+    await screen.findByText('Maria Silva');
+    await waitFor(() => expect(chamadasHistorico).toBe(1));
+
+    await usuario.click(screen.getByRole('button', { name: 'Editar' }));
+    const campoNome = await screen.findByLabelText('Nome');
+    await usuario.clear(campoNome);
+    await usuario.type(campoNome, 'Maria S. Silva');
+    await usuario.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Salvar' })).not.toBeInTheDocument());
+    // A invalidação de ['cliente', id, 'ordens-servico'] dispara um novo GET do histórico.
+    await waitFor(() => expect(chamadasHistorico).toBeGreaterThanOrEqual(2));
+  });
+
+  it('limpar o e-mail (campo opcional) envia email: null no PATCH', async () => {
+    const usuario = userEvent.setup();
+    let corpoEnviado: Record<string, unknown> = {};
+    const fetchMock = vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(async (url, init) => {
+      const metodo = init?.method ?? 'GET';
+      if (url.endsWith('/clientes/c1') && metodo === 'GET') return jsonResposta(fichaMock({ email: 'maria@exemplo.com' }));
+      if (url.endsWith('/clientes/c1') && metodo === 'PATCH') {
+        corpoEnviado = JSON.parse(init!.body as string) as Record<string, unknown>;
+        return jsonResposta(fichaMock({ email: null }));
+      }
+      if (url.includes('/clientes/c1/ordens-servico')) return jsonResposta({ itens: [], proximoCursor: null } satisfies Pagina<ResumoOS>);
+      return jsonResposta({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderizar(
+      <Routes>
+        <Route path="/painel/clientes/:id" element={<FichaCliente />} />
+      </Routes>,
+      { auth: { estado: 'autenticado', usuario: null, tem: () => true }, rota: '/painel/clientes/c1' },
+    );
+
+    await screen.findByText('Maria Silva');
+    await usuario.click(screen.getByRole('button', { name: 'Editar' }));
+
+    const campoEmail = await screen.findByLabelText('E-mail');
+    expect(campoEmail).toHaveValue('maria@exemplo.com');
+    await usuario.clear(campoEmail);
+    await usuario.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(corpoEnviado.email).toBeNull());
+  });
+
   it('cliente inexistente (404) mostra "Cliente não encontrado" com "Voltar ao início"', async () => {
     const fetchMock = vi.fn<(u: string) => Promise<Response>>().mockImplementation(async (url) => {
       if (url.endsWith('/clientes/c1')) return jsonResposta({ statusCode: 404, code: 'CLIENTE_NAO_ENCONTRADO', message: 'Não encontrado' }, 404);

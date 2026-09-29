@@ -115,7 +115,7 @@ export function EditarCliente({ cliente, aberto, onFechar }: EditarClienteProps)
           />
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="editar-cliente-observacoes">Observações (só a oficina vê)</Label>
+            <Label htmlFor="editar-cliente-observacoes">Observações · Só a oficina vê</Label>
             <Textarea id="editar-cliente-observacoes" maxLength={OBSERVACOES_MAX} {...register('observacoes')} />
             {errors.observacoes && (
               <p role="alert" className="text-sm text-destructive">

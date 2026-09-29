@@ -96,6 +96,76 @@ describe('FichaVeiculo', () => {
     expect(await screen.findByText('Preto')).toBeInTheDocument();
   });
 
+  it('editar com sucesso invalida o histórico de OS (CartaoOS usa a placa/modelo do cache antigo)', async () => {
+    const usuario = userEvent.setup();
+    let chamadasHistorico = 0;
+    const fetchMock = vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(async (url, init) => {
+      const metodo = init?.method ?? 'GET';
+      if (url.endsWith('/veiculos/v1') && metodo === 'GET') return jsonResposta(fichaMock());
+      if (url.endsWith('/veiculos/v1') && metodo === 'PATCH') {
+        const corpo = JSON.parse(init!.body as string) as Record<string, unknown>;
+        return jsonResposta(fichaMock({ modelo: corpo.modelo as string }));
+      }
+      if (url.includes('/veiculos/v1/ordens-servico')) {
+        chamadasHistorico += 1;
+        return jsonResposta({ itens: [], proximoCursor: null } satisfies Pagina<ResumoOS>);
+      }
+      return jsonResposta({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderizar(
+      <Routes>
+        <Route path="/painel/veiculos/:id" element={<FichaVeiculo />} />
+      </Routes>,
+      { auth: { estado: 'autenticado', usuario: null, tem: () => true }, rota: '/painel/veiculos/v1' },
+    );
+
+    await screen.findByText('ABC-1234');
+    await waitFor(() => expect(chamadasHistorico).toBe(1));
+
+    await usuario.click(screen.getByRole('button', { name: 'Editar' }));
+    const campoModelo = await screen.findByLabelText('Modelo');
+    await usuario.clear(campoModelo);
+    await usuario.type(campoModelo, 'Gol G6');
+    await usuario.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Salvar' })).not.toBeInTheDocument());
+    // A invalidação de ['veiculo', id, 'ordens-servico'] dispara um novo GET do histórico.
+    await waitFor(() => expect(chamadasHistorico).toBeGreaterThanOrEqual(2));
+  });
+
+  it('limpar o chassi (campo opcional) envia chassi: null no PATCH', async () => {
+    const usuario = userEvent.setup();
+    let corpoEnviado: Record<string, unknown> = {};
+    const fetchMock = vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(async (url, init) => {
+      const metodo = init?.method ?? 'GET';
+      if (url.endsWith('/veiculos/v1') && metodo === 'GET') return jsonResposta(fichaMock({ chassi: '9BWZZZ377VT004251' }));
+      if (url.endsWith('/veiculos/v1') && metodo === 'PATCH') {
+        corpoEnviado = JSON.parse(init!.body as string) as Record<string, unknown>;
+        return jsonResposta(fichaMock({ chassi: null }));
+      }
+      if (url.includes('/veiculos/v1/ordens-servico')) return jsonResposta({ itens: [], proximoCursor: null } satisfies Pagina<ResumoOS>);
+      return jsonResposta({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderizar(
+      <Routes>
+        <Route path="/painel/veiculos/:id" element={<FichaVeiculo />} />
+      </Routes>,
+      { auth: { estado: 'autenticado', usuario: null, tem: () => true }, rota: '/painel/veiculos/v1' },
+    );
+
+    await screen.findByText('ABC-1234');
+    await usuario.click(screen.getByRole('button', { name: 'Editar' }));
+
+    const campoChassi = await screen.findByLabelText('Chassi');
+    expect(campoChassi).toHaveValue('9BWZZZ377VT004251');
+    await usuario.clear(campoChassi);
+    await usuario.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(corpoEnviado.chassi).toBeNull());
+  });
+
   it('veículo inexistente (404) mostra "Veículo não encontrado" com "Voltar ao início"', async () => {
     const fetchMock = vi.fn<(u: string) => Promise<Response>>().mockImplementation(async (url) => {
       if (url.endsWith('/veiculos/v1')) return jsonResposta({ statusCode: 404, code: 'VEICULO_NAO_ENCONTRADO', message: 'Não encontrado' }, 404);
