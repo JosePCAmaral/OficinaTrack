@@ -42,6 +42,7 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 - Token dá acesso só ao cliente dele dentro da oficina dele.
 - Rate limit agressivo no portal e resposta idêntica para token inválido/expirado/revogado (não revelar qual).
 - Portal não expõe `observacoes`, eventos internos, dados da oficina além de nome/endereço/telefone.
+- **Regra de visibilidade do evento (definida na Sprint 3, portal entra na Sprint 5):** o portal só pode devolver `EventoOS` com `visivelCliente = true` **e** `retiradoEm = null`. `NOTA_INTERNA` e `VEICULO_TRANSFERIDO` são sempre `visivelCliente = false` (nunca aceito do body, sempre derivado do `tipo` em `EventosOsService.publicar`); uma `ATUALIZACAO_CLIENTE` retirada (`POST /ordens-servico/:id/eventos/:eventoId/retirar`) nunca volta a ficar visível — o registro continua no histórico interno com `retiradoEm`/`retiradoPorId`, só sai da consulta que o endpoint do portal vai usar.
 - `Referrer-Policy: no-referrer` e `noindex` nas páginas do portal, para o token não vazar em logs de terceiros ou em buscadores.
 - Aprovação do orçamento: idempotente, só em orçamento `ENVIADO` da versão atual, registra IP/user-agent/data.
 
@@ -123,6 +124,16 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 - **Enumeração aceita em convite e cadastro com código**: ver T3 acima.
 - **Pré-sequestro de conta** (cadastro com e-mail alheio; aceite de convite confirma e-mail sem prova de posse): ver T3 acima. Revisitar antes de abrir o cadastro.
 - **Pré-requisitos de deploy:** `trust proxy` (T8), papel do banco sem superusuário e SMTP com TLS (T7), `NODE_ENV=production` (T7), CSP do front (T6).
+
+## Pendências conhecidas (Sprint 3)
+
+Itens identificados na implementação de OS rápida, clientes/veículos e busca, deixados conscientemente para depois (baixo risco no piloto):
+
+- **`contains` não escapa `%`/`_`:** a busca por nome (`ClientesService.buscar`, `Prisma.QueryMode.insensitive`) usa `contains` direto no termo digitado; o Prisma parametriza a consulta (sem injeção), mas um termo com `%` ou `_` amplia o `LIKE` de forma inesperada. Risco baixo (sempre filtrado por `oficinaId`, resultado limitado a 10). Revisitar ao trocar por busca aproximada (pg_trgm).
+- **D4 pode ter corrida num duplo toque:** o front desabilita o botão "Criar nova mesmo assim" enquanto a mutação está em voo (`abrirOs.isPending`), mas isso não é um lock — dois toques muito rápidos antes do primeiro `disabled` renderizar podem disparar duas requisições e abrir duas OS para o mesmo carro (a checagem de OS aberta no back não usa lock adicional, diferente da reserva do número). Aceito para o piloto.
+- **Texto de `VEICULO_TRANSFERIDO` cai para o telefone completo quando não há nome:** `OrdensServicoService.abrir` monta o texto do evento interno com `cliente.nome ?? cliente.telefone` — deveria usar só os 4 últimos dígitos, como o `VEICULO_DE_OUTRO_CLIENTE` (409) já faz. O evento é sempre interno (`visivelCliente = false`), mas ainda expõe mais do que o necessário a quem lê o histórico. Correção trivial, não feita nesta tarefa por ser fora do escopo (documentação/fechamento).
+- **`GET /veiculos/consulta` depende da ordem de registro dos módulos:** a rota funciona porque `OrdensServicoModule` entra antes de `VeiculosModule` no `AppModule` (comentário no código nos dois arquivos). Não há teste que trave essa ordem além do e2e que confere a resposta certa; uma reordenação futura do `AppModule` pode quebrar a rota sem aviso em tempo de compilação.
+- **`GET /usuarios` e `GET /convites` continuam sem paginação** (já registrado em T8): a paginação por cursor desta sprint cobriu OS, clientes e veículos; essas duas listas seguem sem `cursor`/`limite` por serem pequenas e por oficina. Colocar um `take` máximo se isso mudar.
 
 ## Quando rodar o subagent `seguranca`
 

@@ -59,11 +59,11 @@ Validado nas visitas ("está bom").
 
 ### Épico C — Ordem de serviço e checklist de entrada
 
-- **C1.** Como usuário da oficina, quero abrir uma OS em menos de 1 minuto pelo celular informando só **placa, WhatsApp do cliente e queixa**. O sistema reaproveita ou cria o cliente e o veículo; o resto (km, responsável, previsão) é opcional.
+- **C1.** Como usuário da oficina, quero abrir uma OS em menos de 1 minuto pelo celular informando só **placa, WhatsApp do cliente e queixa**. O sistema reaproveita ou cria o cliente e o veículo; o resto (km, responsável, previsão) é opcional. **Placa já cadastrada com outro cliente (D1):** a tela pergunta se o carro mudou de dono — sim, o veículo passa para o novo cliente (evento interno `VEICULO_TRANSFERIDO`); não, a OS fica em nome de quem trouxe e o veículo continua com o dono atual; em ambos os casos o cliente da OS é quem trouxe o carro. **Carro com OS já aberta (D4):** a tela avisa ("Este carro já está na OS #0012, aberta há 2 dias") e oferece abrir a existente ou criar uma nova mesmo assim — nunca bloqueia. *(D1/D4 implementados na Sprint 3.)*
 - **C2.** Como usuário da oficina, quero, **se quiser**, registrar a entrada do carro: fotos primeiro e, opcionalmente, combustível, km, itens (estepe, macaco, som, documentos) e avarias.
-- **C3.** Como usuário da oficina, quero adicionar fotos e comentários na OS e escolher se ficam **visíveis ao cliente** ou são internos.
+- **C3.** Como usuário da oficina, quero registrar na OS anotações em duas áreas separadas: **Notas internas** (equipe, nunca vão ao portal) e **Atualizações para o cliente** (vão ao portal, com botão "Avisar no WhatsApp"). Uma atualização publicada por engano pode ser **retirada** do portal por quem escreveu ou pelo dono, sem apagar o registro interno (continua no histórico com `retiradoEm`/`retiradoPorId`). *(Implementado na Sprint 3, só o texto — fotos na anotação entram com o Épico C2 (Sprint 6).)*
 
-**Critérios:** checklist de entrada nunca bloqueia a abertura da OS; fotos comprimidas no celular antes do upload (máx. ~1600px, JPEG ~0.7); upload direto para o storage via URL pré-assinada; número da OS sequencial **por oficina** (ex.: #0001).
+**Critérios:** checklist de entrada nunca bloqueia a abertura da OS; fotos comprimidas no celular antes do upload (máx. ~1600px, JPEG ~0.7); upload direto para o storage via URL pré-assinada; número da OS sequencial **por oficina** (ex.: #0001); nota interna nunca fica visível ao cliente (nem por edição, nem por body malicioso); retirar uma atualização de outra pessoa exige `EQUIPE_GERENCIAR`.
 
 ### Épico D — Quadro do pátio
 

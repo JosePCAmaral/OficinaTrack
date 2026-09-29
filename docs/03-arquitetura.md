@@ -9,6 +9,7 @@ Usamos **um backend NestJS dividido em módulos de domínio isolados**. Regras:
 - Cada módulo expõe um *service* público; outros módulos só conversam por ele (nunca acessam o repositório/tabelas de outro módulo diretamente).
 - Comunicação assíncrona entre módulos via `@nestjs/event-emitter` (ex.: `os.status_alterado` → módulo de notificações).
 - Se um módulo precisar escalar sozinho no futuro, ele já tem fronteira clara para virar serviço.
+- **Coordenação entre módulos (Sprint 3):** `clientes`, `veiculos` e `ordens-servico` são módulos separados; `OrdensServicoService.abrir()` (abertura rápida da OS, D1/D4) usa os *services* públicos de `ClientesService`, `VeiculosService`, `OficinasService` e `UsuariosService` dentro de uma única transação — mesmo padrão do cadastro da Sprint 2, cada service aceita um `tx`/`db` opcional. Nenhum service lê tabela de outro módulo direto. `GET /veiculos/consulta` mora no `OrdensServicoModule` (não no `VeiculosModule`), porque a resposta inclui a OS em aberto do veículo (D4) e `veiculos` não pode depender de `ordens-servico` sem criar dependência circular; a rota funciona porque `OrdensServicoModule` é registrado antes de `VeiculosModule` no `AppModule`, então `GET /veiculos/consulta` (estática) vence `GET /veiculos/:id`.
 
 ## Stack
 
@@ -45,9 +46,10 @@ oficinatrack/
 │   │   │       ├── auth/             # cadastro, login, sessão, senha
 │   │   │       ├── oficinas/
 │   │   │       ├── usuarios/         # equipe e convites
-│   │   │       ├── clientes/
-│   │   │       ├── veiculos/
-│   │   │       ├── ordens-servico/   # OS, status, eventos, checklist
+│   │   │       ├── clientes/         # ficha, alterar, busca (Sprint 3)
+│   │   │       ├── veiculos/         # ficha, alterar, busca (Sprint 3)
+│   │   │       ├── busca/            # GET /busca — placa, telefone ou nome (Sprint 3)
+│   │   │       ├── ordens-servico/   # abertura (D1/D4), status, eventos (notas/atualizações), checklist
 │   │   │       ├── orcamentos/
 │   │   │       ├── arquivos/         # URLs pré-assinadas R2
 │   │   │       ├── portal-cliente/   # endpoints públicos por token
@@ -60,9 +62,11 @@ oficinatrack/
 │           ├── features/
 │           │   ├── auth/
 │           │   ├── patio/
-│           │   ├── ordens-servico/
+│           │   ├── os/               # início, abrir OS, ficha da OS (Sprint 3)
+│           │   ├── busca/            # Sprint 3
+│           │   ├── clientes/         # ficha do cliente (Sprint 3)
+│           │   ├── veiculos/         # ficha do veículo (Sprint 3)
 │           │   ├── orcamentos/
-│           │   ├── clientes-veiculos/
 │           │   └── portal-cliente/   # rotas /c/:token — bundle separado (lazy)
 │           ├── components/ui/
 │           └── lib/            # api client, utils
@@ -84,7 +88,7 @@ oficinatrack/
 - **Escrita por relação é proibida.** Services gravam FKs escalares (`clienteId`, `responsavelId: null`); proibido connect/disconnect/set e escrita aninhada exceto create em filho com FK composta. A extensão recusa com `TenantViolacaoError` (500, falha fechada), em `data` de `create*`/`update*`/`upsert.create`/`upsert.update`: a chave `oficina`; `connect`, `connectOrCreate`, `set`, `disconnect`, `update`, `updateMany`, `upsert`, `delete`, `deleteMany` aninhados; e `create`/`createMany` aninhados em relação cujo filho não aponta de volta por FK composta (inclusive todas as relações a partir de `Oficina`). O `create` aninhado permitido é validado recursivamente com as mesmas regras. As relações são reconhecidas pelo nome do campo (`apps/api/src/prisma/relacoes-tenant.ts`, com teste que compara com o `schema.prisma`), nunca pelo formato do valor (há campos Json como `itens`/`avarias`).
 - **Três camadas de isolamento:** (1) extensão do Prisma (filtro, `oficinaId` forçado, escrita por relação recusada); (2) FKs compostas `(oficinaId, xId)` em toda relação entre tabelas da oficina, com `ON UPDATE RESTRICT`; (3) trigger `impedir_troca_oficina()` que torna o `oficinaId` imutável em toda tabela com tenant.
 - **`definirOficina()`** (guard da Sprint 2) só pode ser chamado uma vez por requisição, dentro de um contexto CLS ativo e nunca dentro de `executarSemTenant` (lança erro). Para "entrar" numa oficina a partir de um fluxo sem tenant (ex.: aceite de convite), use `executarComo`.
-- **`$queryRaw`/`$executeRaw` não passam pela extensão**: todo SQL cru precisa filtrar `oficinaId` à mão e entrar na lista revisada do teste `test/seguranca/padroes-codigo.e2e-spec.ts`.
+- **`$queryRaw`/`$executeRaw` não passam pela extensão**: todo SQL cru precisa filtrar `oficinaId` à mão e entrar na lista revisada do teste `test/seguranca/padroes-codigo.e2e-spec.ts`. Uso permitido de referência: `ConvitesService.aceitar` (`apps/api/src/modules/usuarios/convites.service.ts`) lê o criador do convite com `SELECT "ativo", "perfil" FROM "Usuario" WHERE "id" = ... AND "oficinaId" = ... FOR UPDATE` dentro da transação do aceite — trava a linha do criador até o commit, para uma desativação/rebaixamento simultâneo não deixar passar um convite `DONO` de quem já perdeu a permissão.
 - Todo módulo tem **teste de isolamento**: usuário da oficina A tenta ler/alterar recurso da oficina B → 404.
 - Futuro opcional: Row Level Security no Postgres como quarta camada.
 
