@@ -129,11 +129,21 @@ Referência do subagent `seguranca`. Mantenha atualizado quando surgir um fluxo 
 
 Itens identificados na implementação de OS rápida, clientes/veículos e busca, deixados conscientemente para depois (baixo risco no piloto):
 
-- **`contains` não escapa `%`/`_`:** a busca por nome (`ClientesService.buscar`, `Prisma.QueryMode.insensitive`) usa `contains` direto no termo digitado; o Prisma parametriza a consulta (sem injeção), mas um termo com `%` ou `_` amplia o `LIKE` de forma inesperada. Risco baixo (sempre filtrado por `oficinaId`, resultado limitado a 10). Revisitar ao trocar por busca aproximada (pg_trgm).
-- **D4 pode ter corrida num duplo toque:** o front desabilita o botão "Criar nova mesmo assim" enquanto a mutação está em voo (`abrirOs.isPending`), mas isso não é um lock — dois toques muito rápidos antes do primeiro `disabled` renderizar podem disparar duas requisições e abrir duas OS para o mesmo carro (a checagem de OS aberta no back não usa lock adicional, diferente da reserva do número). Aceito para o piloto.
-- **Texto de `VEICULO_TRANSFERIDO` cai para o telefone completo quando não há nome:** `OrdensServicoService.abrir` monta o texto do evento interno com `cliente.nome ?? cliente.telefone` — deveria usar só os 4 últimos dígitos, como o `VEICULO_DE_OUTRO_CLIENTE` (409) já faz. O evento é sempre interno (`visivelCliente = false`), mas ainda expõe mais do que o necessário a quem lê o histórico. Correção trivial, não feita nesta tarefa por ser fora do escopo (documentação/fechamento).
+- ~~`contains` não escapa `%`/`_`~~ **corrigido no fechamento da Sprint 3:** `escaparLike` (`src/common/busca/escapar-like.ts`) escapa `\`, `%` e `_` antes do `contains`/`startsWith`.
+- ~~D4 pode ter corrida num duplo toque~~ **corrigido no fechamento da Sprint 3:** `abrir()` reserva o número da OS (`UPDATE` na linha da `Oficina`) antes da checagem de OS aberta, então aberturas simultâneas da mesma oficina se serializam e a segunda recebe `OS_ABERTA_EXISTENTE` (teste e2e de concorrência).
+- ~~Texto de `VEICULO_TRANSFERIDO` com telefone completo~~ **corrigido no fechamento da Sprint 3:** sem nome, o texto usa "cliente com telefone final NNNN".
 - **`GET /veiculos/consulta` depende da ordem de registro dos módulos:** a rota funciona porque `OrdensServicoModule` entra antes de `VeiculosModule` no `AppModule` (comentário no código nos dois arquivos). Não há teste que trave essa ordem além do e2e que confere a resposta certa; uma reordenação futura do `AppModule` pode quebrar a rota sem aviso em tempo de compilação.
 - **`GET /usuarios` e `GET /convites` continuam sem paginação** (já registrado em T8): a paginação por cursor desta sprint cobriu OS, clientes e veículos; essas duas listas seguem sem `cursor`/`limite` por serem pequenas e por oficina. Colocar um `take` máximo se isso mudar.
+- **Sem limite de requisições por usuário nas rotas novas** (auditoria #3, Baixo): só vale o limite global por IP; criar OS/eventos em massa ou raspar clientes pela busca fica possível dentro da própria oficina. Sprint 4: `@Throttle` por `usuario.id`.
+- **Ficha do cliente mostra CPF, e-mail e observações ao FUNCIONARIO** (auditoria #4, Baixo): decisão de produto pendente (mascarar ou justificar).
+- **Relato e diagnóstico podem ser reescritos sem rastro** (auditoria #7, Baixo): Sprint 4 — 422 em OS encerrada e `EventoOS` interno a cada edição ("edição silenciosa de evidência" passa a ser ameaça explícita).
+- **`EventoOS.visivelCliente @default(true)`** falha aberto se um `create` futuro esquecer o campo; todos os `create` atuais passam o valor. Considerar `@default(false)` numa migração antes do portal (Sprint 5).
+
+### Regras para o portal (Sprint 5), vindas da Sprint 3
+
+- Listar OS por `OrdemServico.clienteId` do dono do token, **nunca** por `Veiculo.clienteId`: depois de uma transferência (D1) o novo dono veria o histórico do anterior.
+- Trocar o telefone de um cliente deve gerar registro de auditoria e revogar os links de acesso dele (o link vai para esse número).
+- Criar teste estático que impeça gravar `status` da OS fora de `OrdensServicoService.alterarStatus()`.
 
 ## Quando rodar o subagent `seguranca`
 

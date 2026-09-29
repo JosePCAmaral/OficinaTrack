@@ -9,7 +9,7 @@ Usamos **um backend NestJS dividido em módulos de domínio isolados**. Regras:
 - Cada módulo expõe um *service* público; outros módulos só conversam por ele (nunca acessam o repositório/tabelas de outro módulo diretamente).
 - Comunicação assíncrona entre módulos via `@nestjs/event-emitter` (ex.: `os.status_alterado` → módulo de notificações).
 - Se um módulo precisar escalar sozinho no futuro, ele já tem fronteira clara para virar serviço.
-- **Coordenação entre módulos (Sprint 3):** `clientes`, `veiculos` e `ordens-servico` são módulos separados; `OrdensServicoService.abrir()` (abertura rápida da OS, D1/D4) usa os *services* públicos de `ClientesService`, `VeiculosService`, `OficinasService` e `UsuariosService` dentro de uma única transação — mesmo padrão do cadastro da Sprint 2, cada service aceita um `tx`/`db` opcional. Nenhum service lê tabela de outro módulo direto. `GET /veiculos/consulta` mora no `OrdensServicoModule` (não no `VeiculosModule`), porque a resposta inclui a OS em aberto do veículo (D4) e `veiculos` não pode depender de `ordens-servico` sem criar dependência circular; a rota funciona porque `OrdensServicoModule` é registrado antes de `VeiculosModule` no `AppModule`, então `GET /veiculos/consulta` (estática) vence `GET /veiculos/:id`.
+- **Coordenação entre módulos (Sprint 3):** `clientes`, `veiculos` e `ordens-servico` são módulos separados; `OrdensServicoService.abrir()` (abertura rápida da OS, D1/D4) usa os *services* públicos de `ClientesService`, `VeiculosService`, `OficinasService` e `UsuariosService` dentro de uma única transação — mesmo padrão do cadastro da Sprint 2, cada service aceita um `tx`/`db` opcional. Nenhum service consulta ou grava tabela de outro módulo direto; ler campos de outro módulo por `select` de relação (ex.: a ficha do cliente trazendo seus veículos, o resumo da OS trazendo cliente/veículo/responsável) é permitido, escrever não. `GET /veiculos/consulta` mora no `OrdensServicoModule` (não no `VeiculosModule`), porque a resposta inclui a OS em aberto do veículo (D4) e `veiculos` não pode depender de `ordens-servico` sem criar dependência circular; a rota funciona porque `OrdensServicoModule` é registrado antes de `VeiculosModule` no `AppModule`, então `GET /veiculos/consulta` (estática) vence `GET /veiculos/:id`.
 
 ## Stack
 
@@ -112,7 +112,7 @@ oficinatrack/
 
 1. O usuário da oficina clica "Enviar ao cliente" → API cria/renova um `AcessoCliente` com token aleatório (32 bytes, base64url) e salva só o **hash SHA-256**.
 2. API devolve a URL `https://app.../c/<token>` e o texto da mensagem; o front abre `https://wa.me/55DDDNUMERO?text=...`.
-3. O cliente abre o link → front chama `GET /portal/:token/...` → API busca o hash, valida expiração/revogação e retorna **apenas** dados do cliente daquela oficina, com eventos `visivelCliente = true`.
+3. O cliente abre o link → front chama `GET /portal/:token/...` → API busca o hash, valida expiração/revogação e retorna **apenas** dados do cliente daquela oficina, com eventos `visivelCliente = true` **e** `retiradoEm = null` (atualização retirada nunca volta ao portal). As OS listadas são as de `OrdemServico.clienteId` do dono do token — nunca filtrar por `Veiculo.clienteId`, porque depois de uma transferência (D1) o novo dono veria o histórico do anterior.
 4. Rate limit nos endpoints do portal (`@nestjs/throttler`).
 5. Expiração padrão: 90 dias, renovada a cada novo envio.
 
