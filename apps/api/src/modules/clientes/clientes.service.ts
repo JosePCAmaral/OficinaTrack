@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AlterarCliente, FichaCliente, ResumoCliente } from '@oficinatrack/shared';
 import { classificarTermo } from '../../common/busca/classificar-termo.js';
+import { escaparLike } from '../../common/busca/escapar-like.js';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
@@ -75,13 +76,13 @@ export class ClientesService {
     }
   }
 
-  /** Classifica o termo: placa não busca cliente; telefone busca exato; senão, nome por trecho. */
+  /** Classifica o termo: placa não busca cliente; telefone busca exato; senão, nome por trecho (`%`/`_` literais). */
   buscar(termo: string): Promise<ResumoCliente[]> {
     const classificado = classificarTermo(termo);
     if (classificado.tipo === 'placa') return Promise.resolve([]);
     const where = classificado.tipo === 'telefone'
       ? { telefone: classificado.valor }
-      : { nome: { contains: classificado.valor, mode: Prisma.QueryMode.insensitive } };
+      : { nome: { contains: escaparLike(classificado.valor), mode: Prisma.QueryMode.insensitive } };
     return this.prisma.db.cliente.findMany({ where, select: CAMPOS_RESUMO, take: 10, orderBy: { criadoEm: 'desc' } });
   }
 }

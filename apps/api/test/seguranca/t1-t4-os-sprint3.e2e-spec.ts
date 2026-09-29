@@ -5,7 +5,8 @@
  * `eventoId` de outra oficina, `responsavelId` de outra oficina no PATCH, mass assignment nos
  * três PATCH e no POST de eventos, retirada por perfil e injeção na busca.
  *
- * Os testes marcados "FALHA HOJE" provam um achado ainda aberto; os demais são regressão.
+ * Todos são regressão; os achados #1 (telefone no VEICULO_TRANSFERIDO) e #2 (curinga do LIKE)
+ * foram corrigidos e seus testes ficam aqui para não voltarem.
  */
 import { criarApp, criarOficinaComUsuario, criarUsuarioNa, entrar, type App } from '../auth/apoio-auth.js';
 import { auth, criarClienteNa, criarVeiculoNa, placaUnica } from '../os/apoio-os.js';
@@ -85,8 +86,8 @@ describe('Segurança Sprint 3: OS, clientes, veículos, busca e eventos', () => 
     });
   });
 
-  describe('T6: curinga do LIKE na busca por nome (pendência conhecida)', () => {
-    it('[achado #2] FALHA HOJE: "%%" e "__" são tratados como texto, não como curinga', async () => {
+  describe('T6: curinga do LIKE na busca por nome', () => {
+    it('[regressão achado #2] "%%" e "__" são tratados como texto, não como curinga', async () => {
       const { oficina, token } = await oficinaLogada();
       await criarClienteNa(ctx, oficina.id, { nome: 'Maria da Silva' });
       for (const q of ['%%', '__']) {
@@ -194,7 +195,7 @@ describe('Segurança Sprint 3: OS, clientes, veículos, busca e eventos', () => 
       expect(JSON.stringify(r.body)).not.toContain(dono.telefone.slice(3));
     });
 
-    it('[achado #1] FALHA HOJE: texto do VEICULO_TRANSFERIDO não deve gravar o telefone completo do dono sem nome', async () => {
+    it('[regressão achado #1] texto do VEICULO_TRANSFERIDO não grava o telefone completo de cliente sem nome', async () => {
       const { oficina, token } = await oficinaLogada();
       const dono = await criarClienteNa(ctx, oficina.id, { nome: null });
       const veiculo = await criarVeiculoNa(ctx, oficina.id, dono.id);
@@ -205,6 +206,9 @@ describe('Segurança Sprint 3: OS, clientes, veículos, busca e eventos', () => 
       expect(evento.visivelCliente).toBe(false);
       expect(evento.texto).not.toContain(dono.telefone);
       expect(evento.texto).not.toContain(os.cliente.telefone);
+      expect(evento.texto).toBe(
+        `Veículo transferido de cliente com telefone final ${dono.telefone.slice(-4)} para cliente com telefone final ${os.cliente.telefone.slice(-4)}`,
+      );
     });
   });
 });

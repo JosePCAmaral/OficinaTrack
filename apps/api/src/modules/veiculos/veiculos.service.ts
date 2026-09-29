@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AlterarVeiculo, FichaVeiculo, ResumoVeiculo } from '@oficinatrack/shared';
 import { classificarTermo, placaParcial } from '../../common/busca/classificar-termo.js';
+import { escaparLike } from '../../common/busca/escapar-like.js';
 import { ErroNegocio } from '../../common/erros/erro-negocio.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { TenantContext } from '../../common/tenant/tenant-context.js';
@@ -90,7 +91,7 @@ export class VeiculosService {
     const condicoes: Prisma.VeiculoWhereInput[] = [];
     if (classificado.tipo === 'placa') condicoes.push({ placa: classificado.valor });
     const parcial = placaParcial(termo);
-    if (parcial) condicoes.push({ placa: { startsWith: parcial } });
+    if (parcial) condicoes.push({ placa: { startsWith: escaparLike(parcial) } }); // hoje só alfanumérico; escapa por defesa
     if (condicoes.length === 0) return Promise.resolve([]);
     return this.prisma.db.veiculo.findMany({
       where: { OR: condicoes },

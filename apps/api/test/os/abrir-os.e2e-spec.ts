@@ -190,6 +190,30 @@ describe('Abrir OS', () => {
     expect(clientes).toBe(1);
   });
 
+  it('D4 sob corrida: duas aberturas simultâneas do mesmo carro sem OS aberta → uma cria, a outra 409 OS_ABERTA_EXISTENTE', async () => {
+    const { oficina, token } = await oficinaLogada();
+    const dono = await criarClienteNa(ctx, oficina.id, { nome: 'Dono' });
+    const veiculo = await criarVeiculoNa(ctx, oficina.id, dono.id);
+    await abrir(token, { placa: placaUnica(), telefone: telefoneTeste(), relatoCliente: 'Outro carro' }).expect(201);
+
+    const respostas = await Promise.all([
+      abrir(token, { placa: veiculo.placa, telefone: dono.telefone, relatoCliente: 'Pedido 1' }),
+      abrir(token, { placa: veiculo.placa, telefone: dono.telefone, relatoCliente: 'Pedido 2' }),
+    ]);
+    expect(respostas.map((r) => r.status).toSorted()).toEqual([201, 409]);
+    const criada = respostas.find((r) => r.status === 201)!;
+    const recusada = respostas.find((r) => r.status === 409)!;
+    expect(recusada.body.code).toBe('OS_ABERTA_EXISTENTE');
+    expect(recusada.body.details).toMatchObject({ id: criada.body.id, numero: criada.body.numero });
+    // o número reservado pela abertura recusada volta com o rollback
+    expect(criada.body.numero).toBe(2);
+    await abrir(token, { placa: placaUnica(), telefone: telefoneTeste(), relatoCliente: 'Seguinte' }).expect(201).expect((r) => {
+      expect(r.body.numero).toBe(3);
+    });
+    const oss = await ctx.tenant.executarComo(oficina.id, () => ctx.prisma.db.ordemServico.count({ where: { veiculoId: veiculo.id } }));
+    expect(oss).toBe(1);
+  });
+
   it('mesma placa nova em duas aberturas simultâneas → um veículo só (Review Focus 2)', async () => {
     const { oficina, token } = await oficinaLogada();
     const placa = placaUnica();

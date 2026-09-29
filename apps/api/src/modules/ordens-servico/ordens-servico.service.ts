@@ -27,6 +27,9 @@ const responsavelInvalido = () => new ErroNegocio(422, 'RESPONSAVEL_INVALIDO', '
 const ehCorridaDeAbertura = (erro: unknown) =>
   conflitoEnvolveCampo(erro, 'telefone') || conflitoEnvolveCampo(erro, 'placa') || ehConflitoDeTransacao(erro);
 
+/** Como o cliente aparece em texto gravado (LGPD): o nome ou, sem nome, só os 4 últimos dígitos. */
+const identificarCliente = (c: { nome: string | null; telefone: string }) => c.nome ?? `cliente com telefone final ${c.telefone.slice(-4)}`;
+
 @Injectable()
 export class OrdensServicoService {
   private readonly logger = new Logger(OrdensServicoService.name);
@@ -44,10 +47,15 @@ export class OrdensServicoService {
    * Abertura rápida numa única transação: reaproveita cliente (telefone) e veículo (placa),
    * aplica D4 (OS aberta → 409, a menos que `criarMesmoComOsAberta`) e D1 (placa de outro dono →
    * 409, a menos que venha `transferirVeiculo`), reserva o número e grava a OS com `OS_ABERTA`.
+   *
+   * O número é reservado ANTES da checagem D4: o UPDATE…increment na linha da oficina serializa as
+   * aberturas concorrentes da mesma oficina, e a segunda (READ COMMITTED) já enxerga a OS da
+   * primeira. Um 409 (D4/D1) desfaz a transação inteira, inclusive a reserva do número.
    */
   async abrir(dados: AbrirOs, ator: UsuarioAutenticado): Promise<DetalheOS> {
     const id = await this.comRetentativa(() =>
       this.prisma.db.$transaction(async (tx) => {
+        const numero = await this.oficinas.reservarNumeroOS(tx);
         const existente = await this.veiculos.buscarPorPlaca(dados.placa, tx);
         if (existente && !dados.criarMesmoComOsAberta) {
           const aberta = await this.osAbertaDoVeiculo(existente.id, tx);
@@ -74,7 +82,7 @@ export class OrdensServicoService {
             }
             if (dados.transferirVeiculo) {
               await this.veiculos.transferir(tx, existente.id, cliente.id);
-              transferencia = { de: existente.cliente.nome ?? existente.cliente.telefone, para: cliente.nome ?? cliente.telefone };
+              transferencia = { de: identificarCliente(existente.cliente), para: identificarCliente(cliente) };
             }
           }
         }
@@ -82,7 +90,6 @@ export class OrdensServicoService {
         if (dados.responsavelId && !(await this.usuarios.buscarAtivo(dados.responsavelId, tx))) throw responsavelInvalido();
         if (dados.kmEntrada !== undefined && existente) await this.veiculos.atualizarKmSeMaior(tx, veiculoId, dados.kmEntrada);
 
-        const numero = await this.oficinas.reservarNumeroOS(tx);
         const oficinaId = this.tenant.oficinaIdAtual();
         const os = await tx.ordemServico.create({
           data: {
@@ -115,12 +122,15 @@ export class OrdensServicoService {
     return paraDetalhe(os);
   }
 
-  /** Status não muda aqui (só por `alterarStatus`, Sprint 4). `null` limpa; km maior também atualiza o veículo. */
+  /**
+   * Status não muda aqui (só por `alterarStatus`, Sprint 4). `null` limpa; km maior também atualiza o veículo.
+   * O responsável só é validado quando muda: reenviar o atual (mesmo que desativado depois) não bloqueia a edição.
+   */
   async alterar(id: string, dados: AlterarOs): Promise<DetalheOS> {
     await this.prisma.db.$transaction(async (tx) => {
-      const atual = await tx.ordemServico.findUnique({ where: { id }, select: { veiculoId: true } });
+      const atual = await tx.ordemServico.findUnique({ where: { id }, select: { veiculoId: true, responsavelId: true } });
       if (!atual) throw osNaoEncontrada();
-      if (dados.responsavelId && !(await this.usuarios.buscarAtivo(dados.responsavelId, tx))) throw responsavelInvalido();
+      if (dados.responsavelId && dados.responsavelId !== atual.responsavelId && !(await this.usuarios.buscarAtivo(dados.responsavelId, tx))) throw responsavelInvalido();
 
       const { previsaoEntrega, ...resto } = dados;
       const data: Prisma.OrdemServicoUncheckedUpdateInput = { ...resto };

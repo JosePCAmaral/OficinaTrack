@@ -120,6 +120,27 @@ describe('Consultar e alterar OS', () => {
     expect(vazio.body.code).toBe('VALIDACAO_FALHOU');
   });
 
+  it('PATCH: responsável desativado depois de atribuído não bloqueia editar a OS reenviando o mesmo responsavelId', async () => {
+    const { oficina, token } = await oficinaLogada();
+    const funcionario = await criarUsuarioNa(ctx, oficina.id, 'FUNCIONARIO');
+    const outroInativo = await criarUsuarioNa(ctx, oficina.id, 'FUNCIONARIO', { ativo: false });
+    const outra = await criarOficinaComUsuario(ctx);
+    const os = await nova(token, { responsavelId: funcionario.id });
+    const url = `/api/v1/ordens-servico/${os.body.id}`;
+    await ctx.tenant.executarComo(oficina.id, () => ctx.prisma.db.usuario.update({ where: { id: funcionario.id }, data: { ativo: false } }));
+
+    const r = await ctx.http.patch(url).set(auth(token)).send({ diagnostico: 'Correia gasta', responsavelId: funcionario.id }).expect(200);
+    expect(r.body).toMatchObject({ diagnostico: 'Correia gasta', responsavel: { id: funcionario.id } });
+
+    // trocar para outro inativo ou para usuário de outra oficina continua recusado
+    for (const responsavelId of [outroInativo.id, outra.usuario.id]) {
+      const recusado = await ctx.http.patch(url).set(auth(token)).send({ responsavelId, diagnostico: 'Não deve gravar' }).expect(422);
+      expect(recusado.body.code).toBe('RESPONSAVEL_INVALIDO');
+    }
+    const intacta = await ctx.http.get(url).set(auth(token)).expect(200);
+    expect(intacta.body).toMatchObject({ diagnostico: 'Correia gasta', responsavel: { id: funcionario.id } });
+  });
+
   it('históricos por veículo e por cliente, com paginação', async () => {
     const { oficina, token } = await oficinaLogada();
     const placa = placaUnica();
