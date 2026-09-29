@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { alterarOsSchema, type AlterarOs, type AlterarOsEntrada, type DetalheOS } from '@oficinatrack/shared';
-import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useEffect, useRef } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import { CampoFormulario } from '@/components/campo-formulario';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,9 @@ type EditarOsProps = {
 };
 
 /** Sheet de edição: queixa, diagnóstico, km, responsável e previsão. Responsável segue o mesmo
- *  padrão da abertura de OS (Tarefa 7): lista da equipe ativa só para quem tem `EQUIPE_GERENCIAR`. */
+ *  padrão da abertura de OS (Tarefa 7): lista da equipe ativa só para quem tem `EQUIPE_GERENCIAR`.
+ *  O responsável atual sempre aparece como opção (mesmo inativo ou sendo colega de um FUNCIONARIO),
+ *  e só os campos alterados vão no PATCH, para não sobrescrever a edição simultânea de um colega. */
 export function EditarOS({ os, aberto, onFechar }: EditarOsProps) {
   const { usuario } = useAuth();
   const podeGerenciarEquipe = usePermissao('EQUIPE_GERENCIAR');
@@ -43,22 +45,38 @@ export function EditarOS({ os, aberto, onFechar }: EditarOsProps) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setError,
-    formState: { errors },
-  } = useForm<AlterarOsEntrada>({
+    formState: { errors, dirtyFields },
+  } = useForm<AlterarOsEntrada, unknown, AlterarOs>({
     resolver: zodResolver(alterarOsSchema),
     defaultValues: valoresIniciais(os),
   });
 
+  // Ao abrir: valores da OS. Se a OS mudar com o sheet aberto (refetch), atualiza só o que o usuário
+  // ainda não mexeu.
+  const jaAberto = useRef(false);
   useEffect(() => {
-    if (aberto) reset(valoresIniciais(os));
+    if (!aberto) {
+      jaAberto.current = false;
+      return;
+    }
+    reset(valoresIniciais(os), { keepDirtyValues: jaAberto.current });
+    jaAberto.current = true;
   }, [aberto, os, reset]);
 
-  async function aoEnviar(valores: AlterarOsEntrada) {
+  async function aoEnviar(valores: AlterarOs) {
+    const alterados = Object.fromEntries(
+      Object.entries(valores).filter(([campo]) => dirtyFields[campo as keyof AlterarOsEntrada]),
+    ) as AlterarOs;
+    if (Object.keys(alterados).length === 0) {
+      onFechar();
+      return;
+    }
     try {
-      await alterarOs.mutateAsync(valores as unknown as AlterarOs);
+      await alterarOs.mutateAsync(alterados);
       onFechar();
     } catch (erro) {
       if (erro instanceof ErroApi && erro.code === 'RESPONSAVEL_INVALIDO') {
@@ -68,6 +86,16 @@ export function EditarOS({ os, aberto, onFechar }: EditarOsProps) {
   }
 
   const membrosAtivos = (equipe.data ?? []).filter((m) => m.ativo);
+  const responsavelAtual = os.responsavel;
+  // DONO/gerente: o responsável atual entra como opção extra se não estiver entre os ativos
+  // (desativado depois de assumir a OS); "(inativo)" só depois que a lista chegou.
+  const responsavelForaDaLista =
+    podeGerenciarEquipe && responsavelAtual && !membrosAtivos.some((m) => m.id === responsavelAtual.id)
+      ? { id: responsavelAtual.id, nome: equipe.data ? `${responsavelAtual.nome} (inativo)` : responsavelAtual.nome }
+      : null;
+  // FUNCIONARIO editando a OS de um colega: mostra o colega, e não "Eu".
+  const colegaResponsavel =
+    !podeGerenciarEquipe && responsavelAtual && responsavelAtual.id !== usuario?.id ? responsavelAtual : null;
   const erroGeral =
     alterarOs.isError && alterarOs.error instanceof ErroApi && alterarOs.error.code !== 'RESPONSAVEL_INVALIDO'
       ? alterarOs.error.message
@@ -112,27 +140,43 @@ export function EditarOS({ os, aberto, onFechar }: EditarOsProps) {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="editar-os-responsavel">Responsável</Label>
             {/* Select nativo, como na abertura de OS: no celular abre o seletor do sistema. */}
-            <select
-              id="editar-os-responsavel"
-              className="h-11 w-full rounded-md border border-input bg-transparent px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
-              {...register('responsavelId')}
-            >
-              {podeGerenciarEquipe ? (
-                <>
-                  <option value="">Ninguém</option>
-                  {membrosAtivos.map((membro) => (
-                    <option key={membro.id} value={membro.id}>
-                      {membro.nome}
-                    </option>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <option value={usuario?.id ?? ''}>Eu</option>
-                  <option value="">Ninguém</option>
-                </>
+            {/* Controlado (Controller): as opções da equipe chegam depois do reset e o select precisa
+                continuar mostrando o valor do formulário. */}
+            <Controller
+              control={control}
+              name="responsavelId"
+              render={({ field }) => (
+                <select
+                  id="editar-os-responsavel"
+                  className="h-11 w-full rounded-md border border-input bg-transparent px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
+                  name={field.name}
+                  ref={field.ref}
+                  value={typeof field.value === 'string' ? field.value : ''}
+                  onChange={(e) => field.onChange(e.target.value)}
+                  onBlur={field.onBlur}
+                >
+                  {podeGerenciarEquipe ? (
+                    <>
+                      <option value="">Ninguém</option>
+                      {responsavelForaDaLista && (
+                        <option value={responsavelForaDaLista.id}>{responsavelForaDaLista.nome}</option>
+                      )}
+                      {membrosAtivos.map((membro) => (
+                        <option key={membro.id} value={membro.id}>
+                          {membro.nome}
+                        </option>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <option value={usuario?.id ?? ''}>Eu</option>
+                      {colegaResponsavel && <option value={colegaResponsavel.id}>{colegaResponsavel.nome}</option>}
+                      <option value="">Ninguém</option>
+                    </>
+                  )}
+                </select>
               )}
-            </select>
+            />
             {errors.responsavelId && (
               <p role="alert" className="text-sm text-destructive">
                 {errors.responsavelId.message}

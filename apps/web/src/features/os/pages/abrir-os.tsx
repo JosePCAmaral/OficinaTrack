@@ -45,7 +45,10 @@ export function AbrirOs() {
   const [mostrarDetalhes, setMostrarDetalhes] = useState(false);
   const [infoVeiculo, setInfoVeiculo] = useState<{ modelo: string | null; marca: string | null; cor: string | null } | null>(null);
   const [osAbertaInline, setOsAbertaInline] = useState<OsAbertaExistente | null>(null);
-  const [criarMesmoInline, setCriarMesmoInline] = useState(false);
+  // Placa (normalizada) para a qual o usuário respondeu "Criar nova mesmo assim" no aviso inline (D4).
+  // Guardar a placa, e não um booleano, impede que a confirmação valha para outra placa digitada
+  // depois sem sair do campo (Enter direto no campo não dispara o blur).
+  const [placaCriarMesmo, setPlacaCriarMesmo] = useState<string | null>(null);
   const [erroGeral, setErroGeral] = useState<string | null>(null);
   const [dialogoOsAberta, setDialogoOsAberta] = useState<{ os: OsAbertaExistente; dadosPendentes: AbrirOs } | null>(null);
   const [dialogoDonoDiferente, setDialogoDonoDiferente] = useState<{
@@ -72,7 +75,7 @@ export function AbrirOs() {
   async function aoSairPlaca(valor: string) {
     setInfoVeiculo(null);
     setOsAbertaInline(null);
-    setCriarMesmoInline(false);
+    setPlacaCriarMesmo(null);
     if (!normalizarPlaca(valor)) return;
     try {
       const resultado = await consultarPlaca.mutateAsync(valor);
@@ -117,7 +120,9 @@ export function AbrirOs() {
 
   async function aoEnviar(dadosEntrada: AbrirOsEntrada) {
     setErroGeral(null);
-    const dados: AbrirOs = { ...(dadosEntrada as unknown as AbrirOs), criarMesmoComOsAberta: criarMesmoInline || undefined };
+    const saida = dadosEntrada as unknown as AbrirOs;
+    const criarMesmo = placaCriarMesmo !== null && placaCriarMesmo === normalizarPlaca(saida.placa);
+    const dados: AbrirOs = { ...saida, criarMesmoComOsAberta: criarMesmo || undefined };
     try {
       const os = await abrirOs.mutateAsync(dados);
       navigate(`/painel/os/${os.id}`);
@@ -210,7 +215,7 @@ export function AbrirOs() {
                   type="button"
                   className="h-11"
                   onClick={() => {
-                    setCriarMesmoInline(true);
+                    setPlacaCriarMesmo(normalizarPlaca(getValues('placa') ?? ''));
                     setOsAbertaInline(null);
                   }}
                 >

@@ -1,9 +1,20 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+/**
+ * Dígitos nacionais (DDD + número), no máximo 11. Segue `normalizarTelefone` de `@oficinatrack/shared`:
+ * tira zeros de discagem (`043...`, `0055...`) e, se sobrar mais de 11 dígitos começando com 55, o DDI.
+ * Sem isso, colar `+55 43 99999-8888` cortaria o final do número em vez do DDI.
+ */
+function digitosNacionais(valor: string): string {
+  let digitos = valor.replace(/\D/g, '').replace(/^0+/, '');
+  if (digitos.length > 11 && digitos.startsWith('55')) digitos = digitos.slice(2);
+  return digitos.slice(0, 11);
+}
+
 /** `(43) 99999-8888` enquanto digita; a normalização para E.164 é feita pelo schema no envio. */
 export function mascararTelefone(valor: string): string {
-  const digitos = valor.replace(/\D/g, '').slice(0, 11);
+  const digitos = digitosNacionais(valor);
   if (digitos.length === 0) return '';
   if (digitos.length <= 2) return `(${digitos}`;
   if (digitos.length <= 6) return `(${digitos.slice(0, 2)}) ${digitos.slice(2)}`;

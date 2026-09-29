@@ -241,6 +241,56 @@ describe('AbrirOs', () => {
     expect(corposEnviados[1]).toMatchObject({ criarMesmoComOsAberta: true, transferirVeiculo: true });
   });
 
+  it('D4 confirmado para a placa A não vale para a placa B digitada depois (Enter sem sair do campo)', async () => {
+    const corposEnviados: Record<string, unknown>[] = [];
+    const fetchMock = mockFetch({
+      post: (corpo) => {
+        corposEnviados.push(corpo);
+        return jsonResposta({ id: 'os-20', numero: 20 }, 201);
+      },
+      consulta: (placa) => {
+        if (placa !== 'ABC1234') {
+          return jsonResposta({ statusCode: 404, code: 'VEICULO_NAO_ENCONTRADO', message: 'Placa não encontrada' }, 404);
+        }
+        return jsonResposta(
+          {
+            veiculo: {
+              id: 'v1',
+              placa: 'ABC1234',
+              marca: 'VW',
+              modelo: 'Gol',
+              anoModelo: 2015,
+              cor: 'Prata',
+              chassi: null,
+              kmAtual: 1000,
+              criadoEm: new Date().toISOString(),
+              cliente: { id: 'c1', nome: 'Maria', telefone: '+5543988887777' },
+            },
+            osAberta: { id: 'os-9', numero: 12, criadoEm: new Date().toISOString() },
+          } satisfies ConsultaPlaca,
+          200,
+        );
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const usuario = userEvent.setup();
+    renderizar(<AbrirOs />, { auth: { estado: 'autenticado', usuario: null, tem: () => false }, rota: '/painel/os/nova' });
+
+    await usuario.type(screen.getByLabelText('Placa'), 'ABC1234');
+    await usuario.tab();
+    await usuario.click(await screen.findByRole('button', { name: 'Criar nova mesmo assim' }));
+    await usuario.type(screen.getByLabelText('Queixa do cliente'), 'Troca de óleo e revisão');
+
+    const campoPlaca = screen.getByLabelText('Placa');
+    await usuario.click(campoPlaca);
+    await usuario.clear(campoPlaca);
+    await usuario.type(campoPlaca, 'XYZ9876{Enter}');
+
+    await waitFor(() => expect(corposEnviados).toHaveLength(1));
+    expect(corposEnviados[0]!.placa).toBe('XYZ9876');
+    expect(corposEnviados[0]!.criarMesmoComOsAberta).toBeUndefined();
+  });
+
   it('FUNCIONARIO não carrega a lista da equipe (sem chamada a /usuarios) e vê "Eu"/"Ninguém"', async () => {
     const fetchMock = mockFetch({ post: () => jsonResposta({ id: 'os-z', numero: 1 }, 201) });
     vi.stubGlobal('fetch', fetchMock);

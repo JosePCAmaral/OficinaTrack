@@ -5,12 +5,23 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { ErroApi } from '@/lib/api';
 import { linkWhatsApp, mensagemAtualizacao } from '@/lib/whatsapp';
 import { usePublicarEvento } from '../api/use-publicar-evento';
 import { useRetirarEvento } from '../api/use-retirar-evento';
 import { ItemEvento } from './item-evento';
 
 const TEXTO_MAX = 2000;
+
+/** Mensagem amigável para uma falha ao retirar uma atualização. */
+function mensagemErroRetirar(erro: unknown): string {
+  if (erro instanceof ErroApi) {
+    if (erro.statusCode === 403) return 'Você não pode retirar esta atualização.';
+    if (erro.statusCode === 422) return 'Esta atualização já foi retirada ou não pode ser retirada.';
+    if (erro.statusCode === 404) return 'Esta atualização não foi encontrada. Atualize a tela.';
+  }
+  return 'Não foi possível retirar a atualização. Tente de novo.';
+}
 
 /** Tipos de evento internos, além dos publicáveis (`COMENTARIO` é obsoleto, mas se aparecer conta como interno). */
 export const TIPOS_ABA_INTERNA: TipoEvento[] = ['NOTA_INTERNA', 'VEICULO_TRANSFERIDO', 'COMENTARIO'];
@@ -54,6 +65,7 @@ export function AbaEventos({
 }: AbaEventosProps) {
   const [texto, setTexto] = useState('');
   const [retirandoId, setRetirandoId] = useState<string | null>(null);
+  const [erroRetirar, setErroRetirar] = useState<string | null>(null);
   const publicar = usePublicarEvento(os.id);
   const retirar = useRetirarEvento(os.id);
 
@@ -72,8 +84,11 @@ export function AbaEventos({
 
   async function aoRetirar(eventoId: string) {
     setRetirandoId(eventoId);
+    setErroRetirar(null);
     try {
       await retirar.mutateAsync(eventoId);
+    } catch (erro) {
+      setErroRetirar(mensagemErroRetirar(erro));
     } finally {
       setRetirandoId(null);
     }
@@ -96,6 +111,12 @@ export function AbaEventos({
               Tentar de novo
             </Button>
           </AlertDescription>
+        </Alert>
+      )}
+
+      {erroRetirar && (
+        <Alert variant="destructive">
+          <AlertDescription>{erroRetirar}</AlertDescription>
         </Alert>
       )}
 

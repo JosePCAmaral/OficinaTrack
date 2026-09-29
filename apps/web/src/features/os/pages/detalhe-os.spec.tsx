@@ -63,7 +63,7 @@ const FUNCIONARIO: UsuarioEu = {
 };
 
 /** Mock genérico de `fetch` para a tela da OS: eventos mutáveis, publicar/retirar mexem na mesma lista. */
-function mockFetch(eventosIniciais: EventoOSDto[], opts: { usuarioAtual?: UsuarioEu } = {}) {
+function mockFetch(eventosIniciais: EventoOSDto[], opts: { usuarioAtual?: UsuarioEu; erroRetirar?: () => Response } = {}) {
   const eventos = [...eventosIniciais];
   let proximoId = 1;
   const fetchMock = vi.fn<(u: string, i?: RequestInit) => Promise<Response>>().mockImplementation(async (url, init) => {
@@ -72,6 +72,7 @@ function mockFetch(eventosIniciais: EventoOSDto[], opts: { usuarioAtual?: Usuari
       return jsonResposta(osMock());
     }
     if (url.includes('/ordens-servico/os-1/eventos') && url.includes('/retirar') && metodo === 'POST') {
+      if (opts.erroRetirar) return opts.erroRetirar();
       const eventoId = url.split('/eventos/')[1]!.split('/retirar')[0]!;
       const evento = eventos.find((e) => e.id === eventoId);
       if (!evento) return jsonResposta({ statusCode: 404, code: 'NAO_ENCONTRADO', message: 'Não encontrado' }, 404);
@@ -231,6 +232,27 @@ describe('DetalheOs', () => {
     expect(await screen.findByText(/Retirada por Zé em/)).toBeInTheDocument();
     expect(screen.getByText('Atualização por engano')).toHaveClass('line-through');
     expect(screen.queryByRole('button', { name: 'Retirar' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [403, 'SEM_PERMISSAO', 'Você não pode retirar esta atualização.'],
+    [422, 'EVENTO_NAO_RETIRAVEL', 'Esta atualização já foi retirada ou não pode ser retirada.'],
+  ])('"Retirar" com erro %i mostra alerta em português', async (status, code, mensagem) => {
+    const fetchMock = mockFetch(
+      [eventoMock({ id: 'ev-atualizacao', tipo: 'ATUALIZACAO_CLIENTE', texto: 'Atualização por engano', visivelCliente: true, autor: { id: 'u-dono', nome: 'Zé' } })],
+      { usuarioAtual: DONO, erroRetirar: () => jsonResposta({ statusCode: status, code, message: 'Forbidden' }, status) },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const usuario = userEvent.setup();
+    renderizarDetalheOs({ usuario: DONO, tem: () => true });
+
+    await screen.findByText('Atualização por engano');
+    await usuario.click(screen.getByRole('button', { name: 'Retirar' }));
+    const dialogo = await screen.findByRole('alertdialog');
+    await usuario.click(within(dialogo).getByRole('button', { name: 'Sim, retirar' }));
+
+    expect(await screen.findByText(mensagem)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retirar' })).toBeInTheDocument();
   });
 
   it('"Retirar" só aparece para o autor ou para quem tem EQUIPE_GERENCIAR', async () => {
